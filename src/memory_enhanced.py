@@ -159,8 +159,13 @@ class EnhancedVectorMemory:
             logger.error(f"Error syncing metadata to Obsidian: {e}")
             logger.debug(traceback.format_exc())
         
-    def _create_new_conversation_note(self) -> None:
-        """Create a new conversation note in Obsidian."""
+    def _create_new_conversation_note(self, llm_client=None) -> None:
+        """
+        Create a new conversation note in Obsidian.
+        
+        Args:
+            llm_client: Optional LLM client for generating a name (not used initially)
+        """
         if not self.use_obsidian:
             return
             
@@ -177,9 +182,11 @@ class EnhancedVectorMemory:
             # Reset active conversation
             self.active_conversation = [initial_content]
             
-            # Create the note with timestamp in filename for uniqueness
+            # Default note title with timestamp
             timestamp_filename = datetime.now().strftime("%Y%m%d_%H%M%S")
             note_title = f"Conversation_{timestamp_filename}"
+            
+            # We'll rename the note later when we have enough context
             
             try:
                 # Create the note
@@ -546,4 +553,117 @@ class EnhancedVectorMemory:
             except Exception as e:
                 logger.error(f"Error searching for personal details in Obsidian: {e}")
                 
-        return details 
+        return details
+
+    def generate_conversation_name(self, messages: List[Dict[str, Any]], llm_client) -> str:
+        """
+        Generate a meaningful name for the conversation using the LLM.
+        
+        Args:
+            messages: List of conversation messages
+            llm_client: LLM client to use for generating the name
+            
+        Returns:
+            Generated conversation name
+        """
+        try:
+            # Filter out system messages and get the most recent messages
+            user_messages = [msg for msg in messages if msg["role"] == "user"]
+            
+            # If we don't have enough user messages, use a default name with timestamp
+            if len(user_messages) < 1:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                return f"Conversation_{timestamp}"
+                
+            # Create a prompt for the LLM to generate a name
+            prompt = "Based on this conversation, generate a short, descriptive title (3-6 words) that captures the main topic:\n\n"
+            
+            # Add the most recent messages to the prompt (up to 3)
+            for msg in user_messages[-3:]:
+                prompt += f"User: {msg.get('text', msg.get('content', ''))}\n"
+                
+            # Generate a name using the LLM
+            response = llm_client.generate_response(
+                prompt=prompt,
+                system_prompt="You are a helpful assistant that generates short, descriptive titles for conversations. Generate only the title, no quotes or explanations.",
+                max_tokens=20
+            )
+            
+            # Clean up the response
+            name = response.strip().strip('"\'').strip()
+            
+            # If the name is empty or too long, use a default name
+            if not name or len(name) > 50:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                return f"Conversation_{timestamp}"
+                
+            # Replace spaces with underscores and remove invalid characters
+            name = name.replace(' ', '_')
+            invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*']
+            for char in invalid_chars:
+                name = name.replace(char, '')
+                
+            # Add timestamp to ensure uniqueness
+            timestamp = datetime.now().strftime("%Y%m%d")
+            return f"{timestamp}_{name}"
+            
+        except Exception as e:
+            logger.error(f"Error generating conversation name: {e}")
+            logger.debug(traceback.format_exc())
+            
+            # Return a default name with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return f"Conversation_{timestamp}"
+
+    def rename_conversation_note(self, llm_client) -> bool:
+        """
+        Rename the conversation note with a more descriptive name using the LLM.
+        
+        Args:
+            llm_client: LLM client to use for generating the name
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.use_obsidian or not self.active_note_path or not self.active_conversation:
+            return False
+            
+        try:
+            # Check if we have enough user messages
+            user_messages = [msg for msg in self.active_conversation if msg.get("role") == "user"]
+            if len(user_messages) < 2:
+                return False  # Not enough context yet
+                
+            # Generate a name for the conversation
+            new_name = self.generate_conversation_name(self.active_conversation, llm_client)
+            
+            # Get the current note path and directory
+            current_path = self.active_note_path
+            note_dir = os.path.dirname(current_path)
+            
+            # Create the new path
+            new_path = os.path.join(note_dir, f"{new_name}.md")
+            
+            # Check if the new path already exists
+            if os.path.exists(new_path):
+                # Add a unique identifier to avoid conflicts
+                timestamp = datetime.now().strftime("%H%M%S")
+                new_path = os.path.join(note_dir, f"{new_name}_{timestamp}.md")
+            
+            try:
+                # Rename the file
+                os.rename(current_path, new_path)
+                
+                # Update the active note path
+                self.active_note_path = new_path
+                
+                logger.info(f"Renamed conversation note to: {os.path.basename(new_path)}")
+                return True
+            except Exception as e:
+                logger.error(f"Error renaming conversation note: {e}")
+                logger.debug(traceback.format_exc())
+                return False
+        except Exception as e:
+            logger.error(f"Error in rename_conversation_note: {e}")
+            logger.debug(traceback.format_exc())
+            return False 

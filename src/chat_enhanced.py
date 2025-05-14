@@ -242,6 +242,15 @@ Be respectful and professional at all times.
             self.memory.add_memory(query, "user")
             self.memory.add_memory(response, "assistant")
             
+            # Try to rename the conversation if we have enough context
+            # We need at least 2 user messages (4 total messages including system and responses)
+            user_messages = [msg for msg in self.conversation_history if msg["role"] == "user"]
+            if len(user_messages) >= 2:
+                logger.info("Attempting to rename conversation with descriptive title...")
+                renamed = self.memory.rename_conversation_note(self.llm)
+                if renamed:
+                    logger.info(f"Successfully renamed conversation to: {os.path.basename(self.memory.active_note_path)}")
+            
             return response
         except Exception as e:
             logger.error(f"Error generating response: {e}")
