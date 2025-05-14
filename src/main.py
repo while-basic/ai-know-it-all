@@ -37,7 +37,7 @@ def parse_arguments():
     parser.add_argument(
         "--model", 
         type=str,
-        help="Model name to use (default: llama3.2:1b or from .env)"
+        help="Model name to use (default: sushruth/solar-uncensored:latest or from .env)"
     )
     
     parser.add_argument(

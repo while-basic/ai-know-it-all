@@ -19,7 +19,6 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.chat_enhanced import EnhancedChatInterface
-from src.test_obsidian_memory import test_obsidian_connection, test_vector_memory, fix_obsidian_integration, test_memory_retrieval
 
 # Configure logging
 logging.basicConfig(
@@ -36,18 +35,6 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Run Enhanced AI Know It All with improved Obsidian integration"
-    )
-    
-    parser.add_argument(
-        "--test-only",
-        action="store_true",
-        help="Run tests only, don't start the chat interface"
-    )
-    
-    parser.add_argument(
-        "--fix-obsidian",
-        action="store_true",
-        help="Fix Obsidian integration issues before starting"
     )
     
     parser.add_argument(
@@ -87,27 +74,6 @@ def setup_environment(args):
     if args.model:
         os.environ["MODEL_NAME"] = args.model
 
-def run_tests():
-    """Run tests for Obsidian integration."""
-    print("=" * 50)
-    print("Running Obsidian Integration Tests")
-    print("=" * 50)
-    
-    # Test Obsidian connection
-    obsidian = test_obsidian_connection()
-    
-    # Test vector memory
-    memory = test_vector_memory()
-    
-    # Test memory retrieval
-    test_memory_retrieval()
-    
-    print("\n" + "=" * 50)
-    print("Tests completed!")
-    print("=" * 50)
-    
-    return obsidian, memory
-
 def main():
     """Main entry point for the script."""
     # Load environment variables
@@ -120,20 +86,7 @@ def main():
     setup_environment(args)
     
     try:
-        # Run tests if requested
-        if args.test_only:
-            run_tests()
-            return
-            
-        # Fix Obsidian integration if requested
-        if args.fix_obsidian:
-            print("Fixing Obsidian integration...")
-            fix_obsidian_integration()
-            
-        # Run tests to verify Obsidian integration
-        obsidian, memory = run_tests()
-        
-        # If not test-only, start the chat interface
+        # Start the chat interface
         memory_path = args.memory_path or os.getenv("MEMORY_PATH", "./data/memory")
         model = args.model or os.getenv("MODEL_NAME", "sushruth/solar-uncensored:latest")
         
@@ -149,7 +102,7 @@ def main():
             use_obsidian=not args.disable_obsidian
         )
         
-        # Start the chat session
+        # Start the chat session - this will run in a continuous loop
         chat.start_chat()
         
     except KeyboardInterrupt:

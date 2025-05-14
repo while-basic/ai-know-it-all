@@ -1,0 +1,90 @@
+[
+  {
+    "chunk_id": "cb701f9e59_032840",
+    "doc_id": "doc_cb701f9e_246032",
+    "text": "Python is a programming language that lets you work quickly and integrate systems more effectively. Python is an interpreted, object-oriented, high-level programming language with dynamic semantics. Its high-level built in data structures, combined with dynamic typing and dynamic binding, make it very attractive for Rapid Application Development.",
+    "metadata": {
+      "title": "Python",
+      "source": "demo",
+      "doc_id": "doc_cb701f9e_246032",
+      "chunk_index": 0
+    }
+  },
+  {
+    "chunk_id": "0e2b7bf618_033025",
+    "doc_id": "doc_0e2b7bf6_246033",
+    "text": "JavaScript, often abbreviated as JS, is a programming language that is one of the core technologies of the World Wide Web, alongside HTML and CSS. As of 2022, 98% of websites use JavaScript on the client side for webpage behavior, often incorporating third-party libraries. All major web browsers have a dedicated JavaScript engine to execute the code.",
+    "metadata": {
+      "title": "JavaScript",
+      "source": "demo",
+      "doc_id": "doc_0e2b7bf6_246033",
+      "chunk_index": 0
+    }
+  },
+  {
+    "chunk_id": "7d522a7b0f_033107",
+    "doc_id": "doc_7d522a7b_246033",
+    "text": "Retrieval-Augmented Generation (RAG) is a technique that enhances Large Language Models by providing them with external knowledge. RAG combines the strengths of retrieval-based and generation-based approaches. It retrieves relevant documents or passages from a knowledge base and then uses them to augment the context for the language model, allowing it to generate more accurate and informed responses.",
+    "metadata": {
+      "title": "RAG",
+      "source": "demo",
+      "doc_id": "doc_7d522a7b_246033",
+      "chunk_index": 0
+    }
+  },
+  {
+    "chunk_id": "b13f64b096_033188",
+    "doc_id": "doc_b13f64b0_246033",
+    "text": "Obsidian is a powerful knowledge base that works on top of a local folder of plain text Markdown files. It allows you to create a network of interconnected notes and ideas, perfect for building a personal knowledge base. Obsidian emphasizes linking between notes, allowing you to create a web of knowledge that mimics how your brain works.",
+    "metadata": {
+      "title": "Obsidian",
+      "source": "demo",
+      "doc_id": "doc_b13f64b0_246033",
+      "chunk_index": 0
+    }
+  },
+  {
+    "chunk_id": "cb701f9e59_533681",
+    "doc_id": "doc_cb701f9e_246533",
+    "text": "Python is a programming language that lets you work quickly and integrate systems more effectively. Python is an interpreted, object-oriented, high-level programming language with dynamic semantics. Its high-level built in data structures, combined with dynamic typing and dynamic binding, make it very attractive for Rapid Application Development.",
+    "metadata": {
+      "title": "Python",
+      "source": "demo",
+      "doc_id": "doc_cb701f9e_246533",
+      "chunk_index": 0
+    }
+  },
+  {
+    "chunk_id": "0e2b7bf618_533841",
+    "doc_id": "doc_0e2b7bf6_246533",
+    "text": "JavaScript, often abbreviated as JS, is a programming language that is one of the core technologies of the World Wide Web, alongside HTML and CSS. As of 2022, 98% of websites use JavaScript on the client side for webpage behavior, often incorporating third-party libraries. All major web browsers have a dedicated JavaScript engine to execute the code.",
+    "metadata": {
+      "title": "JavaScript",
+      "source": "demo",
+      "doc_id": "doc_0e2b7bf6_246533",
+      "chunk_index": 0
+    }
+  },
+  {
+    "chunk_id": "7d522a7b0f_533902",
+    "doc_id": "doc_7d522a7b_246533",
+    "text": "Retrieval-Augmented Generation (RAG) is a technique that enhances Large Language Models by providing them with external knowledge. RAG combines the strengths of retrieval-based and generation-based approaches. It retrieves relevant documents or passages from a knowledge base and then uses them to augment the context for the language model, allowing it to generate more accurate and informed responses.",
+    "metadata": {
+      "title": "RAG",
+      "source": "demo",
+      "doc_id": "doc_7d522a7b_246533",
+      "chunk_index": 0
+    }
+  },
+  {
+    "chunk_id": "b13f64b096_533961",
+    "doc_id": "doc_b13f64b0_246533",
+    "text": "Obsidian is a powerful knowledge base that works on top of a local folder of plain text Markdown files. It allows you to create a network of interconnected notes and ideas, perfect for building a personal knowledge base. Obsidian emphasizes linking between notes, allowing you to create a web of knowledge that mimics how your brain works.",
+    "metadata": {
+      "title": "Obsidian",
+      "source": "demo",
+      "doc_id": "doc_b13f64b0_246533",
+      "chunk_index": 0
+    }
+  }
+]

@@ -4,7 +4,7 @@ Develop a CLI chatbot tool with long-term memory. I want it to remember all conv
 
 ### Tech Stack
 - Ollama: For inference
-- llama3.2:1b: Large language model to use
+- sushruth/solar-uncensored:latest: Large language model to use
 - FAISS: For long term memory and searching
 - Python: Language to use
 - Obsidian: For storing, viewing, and altering memories.
@@ -24,7 +24,7 @@ Develop a CLI chatbot tool with long-term memory. I want it to remember all conv
 
 - Python 3.8+
 - [Ollama](https://ollama.ai/) installed and running locally
-- llama3.2:1b model pulled in Ollama
+- sushruth/solar-uncensored:latest model pulled in Ollama
 
 ### Installation
 
@@ -68,7 +68,7 @@ ai-know-it-all/
 Create a `.env` file in the root directory with the following variables:
 ```
 OLLAMA_BASE_URL=http://localhost:11434
-MODEL_NAME=llama3.2:1b
+MODEL_NAME=sushruth/solar-uncensored:latest
 MEMORY_PATH=./data/memory
 ```
 

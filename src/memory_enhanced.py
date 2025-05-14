@@ -61,6 +61,11 @@ class EnhancedVectorMemory:
         # Load or create index and metadata
         self.index, self.metadata = self._load_or_create_resources()
         
+        # Initialize conversation tracking (regardless of Obsidian usage)
+        self.active_conversation = []
+        self.active_note_path = None
+        self.session_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
+        
         # Initialize Obsidian if enabled
         if use_obsidian:
             obsidian_path = os.getenv("OBSIDIAN_PATH", "/Users/chriscelaya/ObsidianVaults")
@@ -74,13 +79,6 @@ class EnhancedVectorMemory:
                 api_port=api_port,
                 api_token=api_token
             )
-            
-            # Track active conversation for Obsidian notes
-            self.active_conversation = []
-            self.active_note_path = None
-            
-            # Create a unique session ID for this conversation
-            self.session_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
             
             # Create a new conversation note at startup
             self._create_new_conversation_note()
