@@ -15,7 +15,8 @@ import logging
 import requests
 import time
 import traceback
-from typing import Dict, List, Any, Optional
+import re
+from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -59,6 +60,7 @@ class ObsidianMemory:
         
         # Create memory directory in Obsidian if it doesn't exist
         self.memory_dir = os.path.join(obsidian_path, "AI-Know-It-All")
+        self.daily_notes_dir = os.path.join(self.memory_dir, "Daily Notes")
         
         # Ensure the Obsidian vault path exists
         self._ensure_obsidian_path()
@@ -69,6 +71,10 @@ class ObsidianMemory:
             logger.warning("Obsidian API not available. Falling back to file system operations.")
         
         logger.info(f"Initialized Obsidian memory handler with path: {obsidian_path}")
+        
+        # Initialize concept cache for auto-linking
+        self.concept_cache = set()
+        self._load_concept_cache()
         
     def _ensure_obsidian_path(self) -> None:
         """Ensure the Obsidian path exists and is properly set up."""
@@ -83,6 +89,11 @@ class ObsidianMemory:
             if not os.path.exists(self.memory_dir):
                 logger.info(f"Creating AI-Know-It-All directory in Obsidian vault")
                 os.makedirs(self.memory_dir, exist_ok=True)
+                
+            # Create Daily Notes directory if it doesn't exist
+            if not os.path.exists(self.daily_notes_dir):
+                logger.info(f"Creating Daily Notes directory in AI-Know-It-All")
+                os.makedirs(self.daily_notes_dir, exist_ok=True)
                 
             # Create a .obsidian directory if it doesn't exist
             obsidian_config_dir = os.path.join(self.obsidian_path, ".obsidian")
@@ -109,6 +120,25 @@ class ObsidianMemory:
             logger.error(f"Error ensuring Obsidian path: {e}")
             logger.debug(traceback.format_exc())
         
+    def _load_concept_cache(self) -> None:
+        """Load existing note titles for auto-linking."""
+        try:
+            # Get all markdown files in the vault to extract concepts
+            self.concept_cache = set()
+            
+            # Walk through the Obsidian vault to find all markdown files
+            for root, _, files in os.walk(self.obsidian_path):
+                for file in files:
+                    if file.endswith('.md'):
+                        # Add the filename without extension as a concept
+                        concept = os.path.splitext(file)[0]
+                        self.concept_cache.add(concept)
+                        
+            logger.info(f"Loaded {len(self.concept_cache)} concepts for auto-linking")
+        except Exception as e:
+            logger.error(f"Error loading concept cache: {e}")
+            logger.debug(traceback.format_exc())
+            
     def _check_api_available(self) -> bool:
         """Check if the Obsidian API is available."""
         try:
@@ -138,16 +168,210 @@ class ObsidianMemory:
             text = text.replace(char, '')
         # Limit length and replace spaces with dashes
         return text[:50].strip().replace(' ', '-')
+            
+    def _extract_concepts(self, text: str) -> Set[str]:
+        """
+        Extract potential concepts from text for auto-linking.
         
+        Args:
+            text: Text to extract concepts from
+            
+        Returns:
+            Set of concepts found in the text
+        """
+        # Simple extraction of capitalized words and phrases
+        concepts = set()
+        
+        # Find capitalized words (potential proper nouns)
+        # This regex looks for words starting with a capital letter followed by lowercase letters
+        capitalized_words = re.findall(r'\b[A-Z][a-z]{2,}\b', text)
+        concepts.update(capitalized_words)
+        
+        # Find potential multi-word concepts (e.g., "New York", "Machine Learning")
+        # This regex looks for 2-3 consecutive capitalized words
+        multi_word = re.findall(r'\b[A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b', text)
+        concepts.update(multi_word)
+        
+        # Filter concepts that exist in our concept cache
+        return {concept for concept in concepts if concept in self.concept_cache}
+        
+    def _auto_link_concepts(self, text: str) -> str:
+        """
+        Auto-link concepts in text with Obsidian wiki links.
+        
+        Args:
+            text: Text to process
+            
+        Returns:
+            Text with auto-linked concepts
+        """
+        # Extract potential concepts
+        concepts = self._extract_concepts(text)
+        
+        # Sort concepts by length (descending) to avoid partial replacements
+        sorted_concepts = sorted(concepts, key=len, reverse=True)
+        
+        # Replace concepts with wiki links
+        linked_text = text
+        for concept in sorted_concepts:
+            # Use regex to ensure we're replacing whole words, not parts of words
+            pattern = r'\b' + re.escape(concept) + r'\b'
+            replacement = f"[[{concept}]]"
+            linked_text = re.sub(pattern, replacement, linked_text)
+            
+        return linked_text
+        
+    def create_daily_note(self) -> Optional[str]:
+        """
+        Create a new daily note for the current chatbot session.
+        
+        Returns:
+            Path to the created daily note or None if failed
+        """
+        try:
+            # Generate filename based on date
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            filename = f"chat-{date_str}.md"
+            filepath = os.path.join(self.daily_notes_dir, filename)
+            
+            # Check if the file already exists
+            if os.path.exists(filepath):
+                # If it exists, we'll append to it instead of creating a new one
+                logger.info(f"Daily note already exists: {filepath}")
+                return filepath
+                
+            # Generate note content
+            content = [
+                f"# Chat Session: {date_str}",
+                "tags: #chat #daily-note",
+                "",
+                f"## Session Started at {self._get_formatted_time()}",
+                "",
+                "This note contains conversations from today's chat sessions.",
+                "",
+                "## Today's Conversations",
+                "",
+                "No conversations yet. They will appear here as you chat.",
+                "",
+                "## Memory Stats",
+                "",
+                "- **Session Start**: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "- **Last Updated**: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ""
+            ]
+            
+            # Write to file
+            try:
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                
+                content_str = '\n'.join(content)
+                
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(content_str)
+                    
+                logger.info(f"Created daily note: {filepath}")
+                return filepath
+            except Exception as e:
+                logger.error(f"Error writing daily note file: {e}")
+                logger.debug(traceback.format_exc())
+                return None
+        except Exception as e:
+            logger.error(f"Error creating daily note: {e}")
+            logger.debug(traceback.format_exc())
+            return None
+            
+    def update_daily_note(self, filepath: str, conversation_link: str, summary: str = None) -> bool:
+        """
+        Update the daily note with a new conversation link.
+        
+        Args:
+            filepath: Path to the daily note
+            conversation_link: Link to the conversation note
+            summary: Optional summary of the conversation
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not os.path.exists(filepath):
+            logger.error(f"Daily note not found: {filepath}")
+            return False
+            
+        try:
+            # Read the current content
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Parse the content
+            lines = content.split('\n')
+            
+            # Find the "Today's Conversations" section
+            conversations_idx = -1
+            for i, line in enumerate(lines):
+                if line.startswith("## Today's Conversations"):
+                    conversations_idx = i
+                    break
+                    
+            if conversations_idx == -1:
+                logger.error("Could not find 'Today's Conversations' section in daily note")
+                return False
+                
+            # Check if there's a "No conversations yet" placeholder
+            placeholder_idx = -1
+            for i in range(conversations_idx + 1, min(conversations_idx + 5, len(lines))):
+                if "No conversations yet" in lines[i]:
+                    placeholder_idx = i
+                    break
+                    
+            # Generate the conversation entry
+            time_str = self._get_formatted_time()
+            conversation_name = os.path.basename(conversation_link).replace('.md', '')
+            
+            entry = [
+                f"### {time_str} - [[{conversation_name}]]"
+            ]
+            
+            if summary:
+                entry.append(f"{summary}")
+                
+            entry.append("")  # Add a blank line
+            
+            # Update the content
+            if placeholder_idx != -1:
+                # Replace the placeholder
+                lines[placeholder_idx] = '\n'.join(entry)
+            else:
+                # Insert after the section header
+                lines.insert(conversations_idx + 1, '\n'.join(entry))
+                
+            # Update the "Last Updated" timestamp
+            for i, line in enumerate(lines):
+                if line.startswith("- **Last Updated**:"):
+                    lines[i] = "- **Last Updated**: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    break
+                    
+            # Write the updated content
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines))
+                
+            logger.info(f"Updated daily note with conversation link: {conversation_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating daily note: {e}")
+            logger.debug(traceback.format_exc())
+            return False
+
     def create_memory_note(self, 
                           conversation: List[Dict[str, Any]], 
-                          custom_filename: Optional[str] = None) -> Optional[str]:
+                          custom_filename: Optional[str] = None,
+                          retrieved_memories: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
         """
         Create a new note in Obsidian for the conversation.
         
         Args:
             conversation: List of conversation messages with role and content
             custom_filename: Optional custom filename (without extension)
+            retrieved_memories: Optional list of retrieved memories to include
             
         Returns:
             Path to the created note or None if failed
@@ -181,11 +405,35 @@ class ObsidianMemory:
             content = [
                 f"# Conversation: {os.path.splitext(filename)[0]}",
                 f"Date: {date_str} {self._get_formatted_time()}",
-                "Tags: #ai-conversation #memory",
+                "Tags: #ai-conversation #memory #generated",
                 "",
-                "## Conversation History",
-                ""
             ]
+            
+            # Add retrieved memories as collapsible sections if provided
+            if retrieved_memories and len(retrieved_memories) > 0:
+                content.append("## Retrieved Memories")
+                content.append("Tags: #retrieved")
+                content.append("")
+                
+                for i, memory in enumerate(retrieved_memories):
+                    memory_text = memory.get("text", memory.get("content", ""))
+                    memory_role = memory.get("role", "unknown")
+                    
+                    # Create a collapsible section
+                    content.append(f"<details>")
+                    content.append(f"<summary>Memory {i+1}: {memory_role.capitalize()}</summary>")
+                    content.append("")
+                    
+                    # Auto-link concepts in the memory text
+                    linked_text = self._auto_link_concepts(memory_text)
+                    content.append(linked_text)
+                    content.append("")
+                    content.append("</details>")
+                    content.append("")
+                
+            content.append("## Conversation History")
+            content.append("Tags: #dialogue")
+            content.append("")
             
             # Add conversation messages
             for i, msg in enumerate(conversation):
@@ -208,8 +456,16 @@ class ObsidianMemory:
                         msg_content = str(msg["text"])
                     else:
                         logger.warning(f"Message {i} has no content or text: {msg}")
+                    
+                    # Add appropriate tags based on role
+                    tag = "#user-message" if role == "User" else ("#ai-response" if role == "AI" else "#system-message")
+                    
+                    content.append(f"### {role} ({timestamp_str}) {tag}")
+                    
+                    # Auto-link concepts in user and AI messages
+                    if role in ["User", "AI"]:
+                        msg_content = self._auto_link_concepts(msg_content)
                         
-                    content.append(f"### {role} ({timestamp_str})")
                     content.append(msg_content)
                     content.append("")
                 except Exception as msg_e:
@@ -228,6 +484,21 @@ class ObsidianMemory:
                 
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write(content_str)
+                
+                # Create or update the daily note with a link to this conversation
+                daily_note_path = self.create_daily_note()
+                if daily_note_path:
+                    # Extract a brief summary from the first user message
+                    summary = None
+                    for msg in conversation:
+                        if msg["role"] == "user":
+                            text = msg.get("content", msg.get("text", ""))
+                            if text:
+                                # Limit to first 100 characters
+                                summary = text[:100] + ("..." if len(text) > 100 else "")
+                                break
+                                
+                    self.update_daily_note(daily_note_path, filepath, summary)
                     
                 logger.info(f"Created memory note: {filepath}")
                 return filepath
@@ -240,13 +511,14 @@ class ObsidianMemory:
             logger.debug(traceback.format_exc())
             return None
         
-    def update_memory_note(self, filepath: str, messages: List[Dict[str, Any]]) -> bool:
+    def update_memory_note(self, filepath: str, messages: List[Dict[str, Any]], retrieved_memories: Optional[List[Dict[str, Any]]] = None) -> bool:
         """
         Update an existing note with messages.
         
         Args:
             filepath: Path to the note file
             messages: All messages to include in the note (will replace existing content)
+            retrieved_memories: Optional list of retrieved memories to include
             
         Returns:
             True if successful, False otherwise
@@ -269,11 +541,35 @@ class ObsidianMemory:
             content = [
                 f"# Conversation: {os.path.splitext(filename)[0]}",
                 f"Date: {date_str} {time_str} (Updated)",
-                "Tags: #ai-conversation #memory",
+                "Tags: #ai-conversation #memory #generated",
                 "",
-                "## Conversation History",
-                ""
             ]
+            
+            # Add retrieved memories as collapsible sections if provided
+            if retrieved_memories and len(retrieved_memories) > 0:
+                content.append("## Retrieved Memories")
+                content.append("Tags: #retrieved")
+                content.append("")
+                
+                for i, memory in enumerate(retrieved_memories):
+                    memory_text = memory.get("text", memory.get("content", ""))
+                    memory_role = memory.get("role", "unknown")
+                    
+                    # Create a collapsible section
+                    content.append(f"<details>")
+                    content.append(f"<summary>Memory {i+1}: {memory_role.capitalize()}</summary>")
+                    content.append("")
+                    
+                    # Auto-link concepts in the memory text
+                    linked_text = self._auto_link_concepts(memory_text)
+                    content.append(linked_text)
+                    content.append("")
+                    content.append("</details>")
+                    content.append("")
+            
+            content.append("## Conversation History")
+            content.append("Tags: #dialogue")
+            content.append("")
             
             # Add all messages
             for i, msg in enumerate(messages):
@@ -296,8 +592,16 @@ class ObsidianMemory:
                         msg_content = str(msg["text"])
                     else:
                         logger.warning(f"Message {i} has no content or text: {msg}")
+                    
+                    # Add appropriate tags based on role
+                    tag = "#user-message" if role == "User" else ("#ai-response" if role == "AI" else "#system-message")
+                    
+                    content.append(f"### {role} ({timestamp_str}) {tag}")
+                    
+                    # Auto-link concepts in user and AI messages
+                    if role in ["User", "AI"]:
+                        msg_content = self._auto_link_concepts(msg_content)
                         
-                    content.append(f"### {role} ({timestamp_str})")
                     content.append(msg_content)
                     content.append("")
                 except Exception as msg_e:

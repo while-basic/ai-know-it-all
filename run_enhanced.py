@@ -65,7 +65,7 @@ def parse_arguments():
     parser.add_argument(
         "--model",
         type=str,
-        help="Model name to use (default: llama3.2:1b or from .env)"
+        help="Model name to use (default: sushruth/solar-uncensored:latest or from .env)"
     )
     
     return parser.parse_args()
@@ -129,7 +129,7 @@ def main():
         
         # If not test-only, start the chat interface
         memory_path = args.memory_path or os.getenv("MEMORY_PATH", "./data/memory")
-        model = args.model or os.getenv("MODEL_NAME", "llama3.2:1b")
+        model = args.model or os.getenv("MODEL_NAME", "sushruth/solar-uncensored:latest")
         
         print("\nStarting Enhanced Chat Interface...")
         

@@ -186,8 +186,12 @@ class EnhancedVectorMemory:
             timestamp_filename = datetime.now().strftime("%Y%m%d_%H%M%S")
             note_title = f"Conversation_{timestamp_filename}"
             
-            # We'll rename the note later when we have enough context
+            # Create a daily note for this session
+            daily_note_path = self.obsidian.create_daily_note()
+            if daily_note_path:
+                logger.info(f"Created/updated daily note: {daily_note_path}")
             
+            # We'll rename the note later when we have enough context
             try:
                 # Create the note
                 self.active_note_path = self.obsidian.create_memory_note(
@@ -274,9 +278,16 @@ class EnhancedVectorMemory:
                     timestamp_filename = datetime.now().strftime("%Y%m%d_%H%M%S")
                     note_title = f"Conversation_{timestamp_filename}"
                     
+                    # Get any relevant memories for this entry
+                    retrieved_memories = None
+                    if entry_copy["role"] == "user":
+                        # Search for relevant memories for user queries
+                        retrieved_memories = self.search(entry_copy["content"], k=3)
+                    
                     self.active_note_path = self.obsidian.create_memory_note(
-                        self.active_conversation,
-                        custom_filename=note_title
+                        self.active_conversation, 
+                        custom_filename=note_title,
+                        retrieved_memories=retrieved_memories
                     )
                     
                     if self.active_note_path:
@@ -290,10 +301,17 @@ class EnhancedVectorMemory:
                 # Otherwise update the existing note
                 if self.active_note_path:
                     try:
+                        # Get any relevant memories for this entry
+                        retrieved_memories = None
+                        if entry_copy["role"] == "user":
+                            # Search for relevant memories for user queries
+                            retrieved_memories = self.search(entry_copy["content"], k=3)
+                            
                         # Pass the entire conversation to update the note completely
                         success = self.obsidian.update_memory_note(
                             self.active_note_path, 
-                            self.active_conversation
+                            self.active_conversation,
+                            retrieved_memories=retrieved_memories
                         )
                         
                         if success:
@@ -306,7 +324,8 @@ class EnhancedVectorMemory:
                             
                             self.active_note_path = self.obsidian.create_memory_note(
                                 self.active_conversation,
-                                custom_filename=note_title
+                                custom_filename=note_title,
+                                retrieved_memories=retrieved_memories
                             )
                             
                             if self.active_note_path:

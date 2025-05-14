@@ -36,10 +36,10 @@ class LLMClient:
         
         Args:
             base_url: Base URL for Ollama API, defaults to env var or localhost
-            model: Model name to use, defaults to env var or llama3.2:1b
+            model: Model name to use, defaults to env var or sushruth/solar-uncensored:latest
         """
         self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = model or os.getenv("MODEL_NAME", "llama3.2:1b")
+        self.model = model or os.getenv("MODEL_NAME", "sushruth/solar-uncensored:latest")
         
         # Ensure base_url doesn't end with a slash
         if self.base_url.endswith("/"):
