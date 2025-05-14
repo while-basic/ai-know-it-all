@@ -20,6 +20,8 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from colorama import Fore, Style, init
 from dotenv import load_dotenv
+import random
+from datetime import datetime
 
 from .memory_enhanced import EnhancedVectorMemory
 from .llm import LLMClient
@@ -40,33 +42,8 @@ logger = logging.getLogger(__name__)
 # Rich console for pretty output
 console = Console()
 
-class EnhancedChatInterface:
-    """
-    Enhanced interactive chat interface for the AI Know It All CLI tool.
-    """
-    def __init__(self, 
-                memory_path: Optional[str] = None, 
-                base_url: Optional[str] = None,
-                model: Optional[str] = None,
-                use_obsidian: bool = True):
-        """
-        Initialize the enhanced chat interface.
-        
-        Args:
-            memory_path: Path to store memory, defaults to env var or ./data/memory
-            base_url: Ollama API base URL
-            model: Model name to use
-            use_obsidian: Whether to use Obsidian for storing memories
-        """
-        memory_path = memory_path or os.getenv("MEMORY_PATH", "./data/memory")
-        
-        self.memory = EnhancedVectorMemory(memory_path, use_obsidian=use_obsidian)
-        self.llm = LLMClient(base_url, model)
-        self.conversation_history: List[Dict[str, str]] = []
-        self.use_obsidian = use_obsidian
-        
-        # System prompt for the chatbot with enhanced memory instructions
-        self.system_prompt = """You are AI Know It All, a helpful and knowledgeable assistant with long-term memory.
+# Default system prompt for the chatbot
+DEFAULT_SYSTEM_PROMPT = """You are AI Know It All, a helpful and knowledgeable assistant with long-term memory.
 You can remember past conversations even after the program is restarted.
 Be concise, friendly, and helpful. If you don't know something, say so.
 Always remember personal details about the user, especially their name. If the user tells you their name, remember it and use it in your responses.
@@ -76,6 +53,46 @@ Only reference conversations and information that are explicitly mentioned in th
 Be respectful and professional at all times.
 """
 
+class EnhancedChatInterface:
+    """
+    Enhanced interactive chat interface for the AI Know It All CLI tool.
+    """
+    def __init__(self, 
+                 memory_path: str = "./data/memory",
+                 model: str = None,
+                 use_obsidian: bool = False):
+        """
+        Initialize the enhanced chat interface.
+        
+        Args:
+            memory_path: Path to the memory directory
+            model: Model name to use
+            use_obsidian: Whether to use Obsidian integration
+        """
+        self.memory = EnhancedVectorMemory(memory_path, use_obsidian=use_obsidian)
+        self.llm = LLMClient(model=model)
+        self.system_prompt = DEFAULT_SYSTEM_PROMPT
+        self.conversation_history = []
+        self.use_obsidian = use_obsidian
+        
+        # Initialize proactive features if Obsidian is enabled
+        self.proactive_assistant = None
+        if use_obsidian:
+            from .proactive import ProactiveAssistant
+            from .obsidian import ObsidianMemory
+            
+            # Get Obsidian path from environment or use default
+            obsidian_path = os.getenv("OBSIDIAN_PATH", "/Users/chriscelaya/ObsidianVaults")
+            obsidian = ObsidianMemory(obsidian_path=obsidian_path)
+            
+            # Initialize proactive assistant
+            self.proactive_assistant = ProactiveAssistant(
+                obsidian=obsidian,
+                llm_client=self.llm
+            )
+            
+        logger.info(f"Initialized Enhanced Chat Interface with model: {self.llm.model}")
+        
     def _format_user_input(self, text: str) -> None:
         """Format and print user input."""
         console.print(f"{Fore.GREEN}User: {text}{Style.RESET_ALL}")
@@ -201,6 +218,60 @@ Be respectful and professional at all times.
             
         return "\n".join(result)
         
+    def start_chat(self) -> None:
+        """Start the chat session."""
+        print(f"\n🤖 AI Know It All (Enhanced) - Using model: {self.llm.model}")
+        print("=" * 50)
+        print("Type '!exit' to quit, '!help' for commands")
+        print("=" * 50)
+        
+        # Display welcome message if proactive assistant is enabled
+        if self.proactive_assistant:
+            welcome_message = self.proactive_assistant.generate_welcome_message()
+            print(f"\n{welcome_message}\n")
+            print("=" * 50)
+        
+        # Main chat loop
+        while True:
+            try:
+                # Get user input
+                user_input = input("\n👤 You: ")
+                
+                # Check for exit command
+                if user_input.lower() in ["!exit", "!quit", "!q"]:
+                    print("\n👋 Goodbye!")
+                    break
+                    
+                # Check for help command
+                if user_input.lower() == "!help":
+                    self._show_help()
+                    continue
+                
+                # Process query and get response
+                response = self.process_query(user_input)
+                
+                # Display response
+                print(f"\n🤖 AI: {response}")
+                
+                # Offer proactive suggestion occasionally (1 in 3 chance)
+                if self.proactive_assistant and random.random() < 0.3:
+                    suggestion = self.proactive_assistant.generate_proactive_suggestion()
+                    if suggestion:
+                        print(f"\n💡 Suggestion: {suggestion}")
+                        
+                # Offer reflective prompt occasionally (1 in 5 chance)
+                if self.proactive_assistant and random.random() < 0.2:
+                    reflective_prompt = self.proactive_assistant.generate_reflective_prompt()
+                    if reflective_prompt:
+                        print(f"\n💭 Reflection: {reflective_prompt}")
+                
+            except KeyboardInterrupt:
+                print("\n\n👋 Chat session terminated by user.")
+                break
+            except Exception as e:
+                logger.error(f"Error in chat loop: {e}", exc_info=True)
+                print(f"\n❌ Error: {str(e)}")
+                
     def process_query(self, query: str) -> str:
         """
         Process a user query and generate a response.
@@ -228,37 +299,39 @@ Be respectful and professional at all times.
             # Check if response is valid
             if not response or not isinstance(response, str):
                 logger.error(f"Invalid response from LLM: {response}")
-                response = "I'm sorry, I encountered an issue generating a response. Please try again."
+                response = "I'm sorry, I couldn't generate a proper response. Please try again."
                 
-            # If response starts with "Assistant:", remove it
-            if response.startswith("Assistant:"):
-                response = response[len("Assistant:"):].strip()
-                
-            # Update conversation history and memory
+            # Update conversation history
             self.conversation_history.append({"role": "user", "content": query})
             self.conversation_history.append({"role": "assistant", "content": response})
+                
+            # Save the interaction to memory
+            self.memory.add_interaction(query, response)
             
-            # Store in long-term memory
-            self.memory.add_memory(query, "user")
-            self.memory.add_memory(response, "assistant")
-            
-            # Try to rename the conversation if we have enough context
-            # We need at least 2 user messages (4 total messages including system and responses)
-            user_messages = [msg for msg in self.conversation_history if msg["role"] == "user"]
-            if len(user_messages) >= 2:
-                logger.info("Attempting to rename conversation with descriptive title...")
-                renamed = self.memory.rename_conversation_note(self.llm)
-                if renamed:
-                    logger.info(f"Successfully renamed conversation to: {os.path.basename(self.memory.active_note_path)}")
+            # Try to rename the conversation after collecting enough context (at least 2 user messages)
+            if self.memory.active_conversation and len([m for m in self.memory.active_conversation if m.get("role") == "user"]) >= 2:
+                try:
+                    self.memory.rename_conversation_note(self.llm)
+                except Exception as e:
+                    logger.error(f"Error renaming conversation: {e}")
+                    
+            # Generate insight occasionally (1 in 4 chance)
+            if self.proactive_assistant and random.random() < 0.25:
+                try:
+                    insight = self.proactive_assistant.generate_insight(self.memory.active_conversation)
+                    # We don't display the insight immediately, it will be shown in the welcome message next time
+                except Exception as e:
+                    logger.error(f"Error generating insight: {e}")
             
             return response
+            
         except Exception as e:
-            logger.error(f"Error generating response: {e}")
-            return "I'm sorry, I encountered an issue generating a response. Please try again."
+            logger.error(f"Error generating response: {e}", exc_info=True)
+            return "I'm sorry, an error occurred while generating a response. Please try again."
         
     def _handle_obsidian_command(self, command: str) -> str:
         """
-        Handle special Obsidian commands.
+        Handle Obsidian-related commands.
         
         Args:
             command: The command string
@@ -266,154 +339,79 @@ Be respectful and professional at all times.
         Returns:
             Response message
         """
-        if not self.use_obsidian:
-            return "Obsidian integration is disabled."
-            
+        # Parse the command
         parts = command.split()
-        
         if len(parts) < 2:
-            return "Available Obsidian commands:\n- !obsidian list - List recent notes\n- !obsidian search <query> - Search notes\n- !obsidian import <path> - Import a note\n- !obsidian save - Save current conversation to a new note\n- !obsidian sync - Sync memory to Obsidian"
+            return "Available Obsidian commands: list, search, import, save, sync"
             
-        action = parts[1].lower()
+        subcommand = parts[1].lower()
         
-        if action == "list":
-            return self._list_obsidian_notes()
-        elif action == "search" and len(parts) > 2:
-            search_query = " ".join(parts[2:])
-            return self._search_obsidian_notes(search_query)
-        elif action == "import" and len(parts) > 2:
-            note_path = " ".join(parts[2:])
-            return self._import_obsidian_note(note_path)
-        elif action == "save":
-            return self._save_conversation()
-        elif action == "sync":
-            return self._sync_to_obsidian()
-        else:
-            return "Unknown Obsidian command. Try !obsidian for help."
-            
-    def _sync_to_obsidian(self) -> str:
-        """Sync all memory to Obsidian."""
-        if not self.use_obsidian:
-            return "Obsidian integration is disabled."
-            
         try:
-            self.memory._sync_metadata_to_obsidian()
-            return "Successfully synced memory to Obsidian."
-        except Exception as e:
-            logger.error(f"Error syncing to Obsidian: {e}")
-            return f"Error syncing to Obsidian: {str(e)}"
-            
-    def _save_conversation(self) -> str:
-        """Save the current conversation to Obsidian."""
-        if not self.use_obsidian:
-            return "Obsidian integration is disabled."
-            
-        if not self.conversation_history:
-            return "No conversation to save."
-            
-        success = self.memory.save_conversation_to_obsidian()
-        if success:
-            return "Successfully saved conversation to Obsidian."
-        else:
-            return "Failed to save conversation to Obsidian."
-            
-    def _list_obsidian_notes(self) -> str:
-        """List recent Obsidian notes."""
-        try:
-            notes = self.memory.get_obsidian_memories(limit=5)
-            
-            if not notes:
-                return "No notes found in Obsidian."
+            if subcommand == "list":
+                # List recent notes
+                notes = self.memory.obsidian.get_recent_notes(limit=10)
+                if not notes:
+                    return "No recent notes found."
+                    
+                result = "Recent notes:\n"
+                for note in notes:
+                    result += f"- {note['title']}\n"
+                return result
                 
-            result = ["Recent notes in Obsidian:"]
-            
-            for i, note in enumerate(notes, 1):
-                path = note.get('path', 'Unknown')
-                modified = note.get('modified', 'Unknown')
-                result.append(f"{i}. {os.path.basename(path)} (Modified: {modified})")
+            elif subcommand == "search" and len(parts) >= 3:
+                # Search notes
+                query = " ".join(parts[2:])
+                notes = self.memory.obsidian.search_notes(query)
+                if not notes:
+                    return f"No notes found for query: {query}"
+                    
+                result = f"Search results for '{query}':\n"
+                for note in notes:
+                    result += f"- {note['title']}\n"
+                return result
                 
-            return "\n".join(result)
-        except Exception as e:
-            logger.error(f"Error listing Obsidian notes: {e}")
-            return "Error listing Obsidian notes. Please check the logs for details."
-        
-    def _search_obsidian_notes(self, query: str) -> str:
-        """Search Obsidian notes."""
-        try:
-            notes = self.memory.get_obsidian_memories(query=query)
-            
-            if not notes:
-                return f"No notes found in Obsidian matching '{query}'."
+            elif subcommand == "import" and len(parts) >= 3:
+                # Import a note
+                path = " ".join(parts[2:])
+                note = self.memory.obsidian.import_note(path)
+                if not note:
+                    return f"Note not found: {path}"
+                    
+                return f"Imported note: {note['title']}"
                 
-            result = [f"Notes in Obsidian matching '{query}':"]
-            
-            for i, note in enumerate(notes, 1):
-                path = note.get('path', 'Unknown')
-                snippet = note.get('content', '')[:100] + "..." if note.get('content') else "No content"
-                result.append(f"{i}. {os.path.basename(path)}")
-                result.append(f"   {snippet}")
+            elif subcommand == "save":
+                # Save current conversation
+                if not self.memory.active_note_path:
+                    return "No active conversation to save."
+                    
+                self.memory.obsidian.update_memory_note(
+                    self.memory.active_note_path,
+                    self.memory.active_conversation
+                )
+                return "Conversation saved to Obsidian."
                 
-            return "\n".join(result)
-        except Exception as e:
-            logger.error(f"Error searching Obsidian notes: {e}")
-            return "Error searching Obsidian notes. Please check the logs for details."
-        
-    def _import_obsidian_note(self, note_path: str) -> str:
-        """Import an Obsidian note into memory."""
-        try:
-            success = self.memory.import_from_obsidian(note_path)
-            
-            if success:
-                return f"Successfully imported note: {note_path}"
+            elif subcommand == "sync":
+                # Sync memory to Obsidian
+                self.memory.sync_to_obsidian()
+                return "Memory synced to Obsidian."
+                
             else:
-                return f"Failed to import note: {note_path}"
+                return "Unknown Obsidian command. Available commands: list, search, import, save, sync"
+                
         except Exception as e:
             logger.error(f"Error importing Obsidian note: {e}")
             return "Error importing Obsidian note. Please check the logs for details."
-        
-    def start_chat(self) -> None:
-        """Start the chat interface."""
-        console.print("[bold blue]AI Know It All - Chatbot with Long-Term Memory[/bold blue]")
-        console.print("Type '!exit' to quit, '!help' for help, or '!obsidian' for Obsidian commands.")
-        console.print()
-        
-        while True:
-            try:
-                # Get user input
-                query = Prompt.ask("[bold green]You[/bold green]")
-                
-                # Check for exit command
-                if query.lower() in ["!exit", "!quit"]:
-                    console.print("Goodbye!")
-                    break
-                    
-                # Check for help command
-                if query.lower() == "!help":
-                    console.print(Panel(
-                        "Available commands:\n"
-                        "- !exit or !quit - Exit the chat\n"
-                        "- !help - Show this help message\n"
-                        "- !obsidian - Show Obsidian commands\n"
-                        "- !obsidian list - List recent notes\n"
-                        "- !obsidian search <query> - Search notes\n"
-                        "- !obsidian import <path> - Import a note\n"
-                        "- !obsidian save - Save current conversation\n"
-                        "- !obsidian sync - Sync memory to Obsidian",
-                        title="Help",
-                        border_style="blue"
-                    ))
-                    continue
-                    
-                # Process the query
-                response = self.process_query(query)
-                
-                # Format and print the response
-                self._format_assistant_response(response)
-                
-            except KeyboardInterrupt:
-                console.print("\nGoodbye!")
-                break
-                
-            except Exception as e:
-                logger.error(f"Error in chat loop: {e}")
-                console.print(f"[bold red]Error:[/bold red] {str(e)}")
+            
+    def _show_help(self) -> None:
+        """Display help information."""
+        print("\n=== AI Know It All Help ===")
+        print("Available commands:")
+        print("  !exit, !quit, !q - Exit the chat")
+        print("  !help - Show this help message")
+        print("  !obsidian - Show Obsidian commands")
+        print("  !obsidian list - List recent notes")
+        print("  !obsidian search <query> - Search notes")
+        print("  !obsidian import <path> - Import a note")
+        print("  !obsidian save - Save current conversation")
+        print("  !obsidian sync - Sync memory to Obsidian")
+        print("=" * 30)

@@ -68,6 +68,12 @@ def parse_arguments():
         help="Model name to use (default: sushruth/solar-uncensored:latest or from .env)"
     )
     
+    parser.add_argument(
+        "--disable-obsidian",
+        action="store_true",
+        help="Disable Obsidian integration"
+    )
+    
     return parser.parse_args()
 
 def setup_environment(args):
@@ -132,12 +138,15 @@ def main():
         model = args.model or os.getenv("MODEL_NAME", "sushruth/solar-uncensored:latest")
         
         print("\nStarting Enhanced Chat Interface...")
+        print(f"Using model: {model}")
+        print(f"Memory path: {memory_path}")
+        print(f"Obsidian integration: {'Enabled' if not args.disable_obsidian else 'Disabled'}")
         
         # Create and start the chat interface
         chat = EnhancedChatInterface(
             memory_path=memory_path,
             model=model,
-            use_obsidian=True
+            use_obsidian=not args.disable_obsidian
         )
         
         # Start the chat session

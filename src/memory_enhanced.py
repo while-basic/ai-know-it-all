@@ -214,45 +214,71 @@ class EnhancedVectorMemory:
             # Set active_note_path to None to indicate failure
             self.active_note_path = None
     
-    def add_memory(self, text: str, role: str, timestamp: Optional[float] = None) -> None:
+    def add_memory(self, text: str, role: str = "user", session_id: Optional[str] = None) -> bool:
         """
-        Add a new memory entry to the vector store.
+        Add a memory entry to the vector store.
         
         Args:
-            text: The text content to remember
-            role: The role of the speaker (user or assistant)
-            timestamp: Optional timestamp, defaults to current time
+            text: The text to add
+            role: The role (user or assistant)
+            session_id: Optional session ID
+            
+        Returns:
+            True if successful, False otherwise
         """
-        if not text.strip():
-            return
+        if not text or not isinstance(text, str):
+            logger.warning("Invalid memory text")
+            return False
             
-        # Generate embedding
-        embedding = self.model.encode([text])[0]
-        embedding_normalized = embedding.reshape(1, -1).astype(np.float32)
-        
-        # Add to FAISS index
-        self.index.add(embedding_normalized)
-        
-        # Add metadata
-        if timestamp is None:
-            timestamp = time.time()
+        try:
+            # Create a memory entry
+            entry = self._create_memory_entry(text, role, session_id)
             
-        metadata_entry = {
-            "text": text,
-            "role": role,
-            "timestamp": timestamp,
-            "index": len(self.metadata),
-            "session_id": getattr(self, "session_id", f"{int(timestamp)}")
-        }
-        self.metadata.append(metadata_entry)
+            # Generate embedding
+            embedding = self.model.encode([text])[0]
+            embedding_normalized = embedding.reshape(1, -1).astype(np.float32)
+            
+            # Add to FAISS index
+            self.index.add(embedding_normalized)
+            
+            # Add metadata
+            entry["index"] = len(self.metadata)
+            self.metadata.append(entry)
+            
+            # Save to disk
+            self._save_resources()
+            
+            # Add to Obsidian if enabled
+            if self.use_obsidian:
+                self._add_to_obsidian(entry)
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error adding memory: {e}")
+            logger.debug(traceback.format_exc())
+            return False
         
-        # Save to disk
-        self._save_resources()
+    def add_interaction(self, user_query: str, assistant_response: str, session_id: Optional[str] = None) -> bool:
+        """
+        Add a user-assistant interaction to memory.
         
-        # Add to Obsidian if enabled
-        if self.use_obsidian:
-            self._add_to_obsidian(metadata_entry)
+        Args:
+            user_query: The user's query
+            assistant_response: The assistant's response
+            session_id: Optional session ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Add user message
+        user_success = self.add_memory(user_query, "user", session_id)
         
+        # Add assistant message
+        assistant_success = self.add_memory(assistant_response, "assistant", session_id)
+        
+        return user_success and assistant_success
+    
     def _add_to_obsidian(self, entry: Dict[str, Any]) -> None:
         """
         Add a memory entry to Obsidian.
@@ -685,4 +711,38 @@ class EnhancedVectorMemory:
         except Exception as e:
             logger.error(f"Error in rename_conversation_note: {e}")
             logger.debug(traceback.format_exc())
-            return False 
+            return False
+
+    def _create_memory_entry(self, text: str, role: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Create a memory entry.
+        
+        Args:
+            text: The text content
+            role: The role (user or assistant)
+            session_id: Optional session ID
+            
+        Returns:
+            Memory entry dictionary
+        """
+        timestamp = time.time()
+        
+        if not session_id:
+            session_id = getattr(self, "session_id", f"{int(timestamp)}-{self._generate_session_id()}")
+            
+        return {
+            "text": text,
+            "role": role,
+            "timestamp": timestamp,
+            "session_id": session_id
+        }
+        
+    def _generate_session_id(self) -> str:
+        """
+        Generate a unique session ID.
+        
+        Returns:
+            Session ID string
+        """
+        import uuid
+        return str(uuid.uuid4())[:8] 
