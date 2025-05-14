@@ -12,7 +12,7 @@
 import os
 import logging
 import json
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from dotenv import load_dotenv
 
 # Add the current directory to the path so we can import the modules
@@ -54,6 +54,12 @@ chat_interface = EnhancedChatInterface(
 def index():
     """Render the chat interface."""
     return render_template('index.html')
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve the favicon."""
+    return send_from_directory(os.path.join(app.root_path, 'static', 'img'),
+                               'favicon.png', mimetype='image/png')
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
