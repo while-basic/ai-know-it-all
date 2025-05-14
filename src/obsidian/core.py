@@ -17,6 +17,10 @@ from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
 import markdown
 from bs4 import BeautifulSoup
+import time
+import threading
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 from .api import ObsidianAPI
 from .filesystem import ObsidianFileSystem
@@ -27,6 +31,48 @@ from .utils import (
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+class ObsidianFileHandler(FileSystemEventHandler):
+    """
+    Handler for file system events in the Obsidian vault.
+    """
+    def __init__(self, obsidian_memory):
+        """
+        Initialize the file handler.
+        
+        Args:
+            obsidian_memory: ObsidianMemory instance
+        """
+        self.obsidian_memory = obsidian_memory
+        
+    def on_created(self, event):
+        """
+        Handle file creation events.
+        
+        Args:
+            event: File system event
+        """
+        if event.is_directory:
+            return
+            
+        if event.src_path.endswith('.md'):
+            logger.info(f"New Obsidian note detected: {event.src_path}")
+            self.obsidian_memory.process_new_file(event.src_path)
+            
+    def on_modified(self, event):
+        """
+        Handle file modification events.
+        
+        Args:
+            event: File system event
+        """
+        if event.is_directory:
+            return
+            
+        if event.src_path.endswith('.md'):
+            logger.info(f"Modified Obsidian note detected: {event.src_path}")
+            self.obsidian_memory.process_modified_file(event.src_path)
 
 
 class ObsidianMemory:
@@ -59,6 +105,104 @@ class ObsidianMemory:
         # Initialize concept cache for auto-linking
         self.concept_cache = set()
         self._load_concept_cache()
+        
+        # Initialize file watcher
+        self.observer = None
+        self.start_file_watcher()
+        
+        # Track recently processed files to avoid duplicates
+        self.recently_processed_files = set()
+        
+    def start_file_watcher(self):
+        """Start the file watcher for the Obsidian vault."""
+        try:
+            # Create an observer for the Obsidian vault
+            self.observer = Observer()
+            event_handler = ObsidianFileHandler(self)
+            
+            # Set the path to watch
+            watch_path = os.path.join(self.obsidian_path, "ai-know-it-all")
+            
+            # Make sure the directory exists
+            os.makedirs(watch_path, exist_ok=True)
+            
+            # Schedule the observer
+            self.observer.schedule(event_handler, watch_path, recursive=True)
+            
+            # Start the observer in a background thread
+            self.observer.start()
+            logger.info(f"Started file watcher for Obsidian vault at {watch_path}")
+        except Exception as e:
+            logger.error(f"Error starting file watcher: {e}")
+            logger.debug(traceback.format_exc())
+            
+    def stop_file_watcher(self):
+        """Stop the file watcher."""
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+            logger.info("Stopped file watcher")
+            
+    def process_new_file(self, filepath):
+        """
+        Process a newly created file in the Obsidian vault.
+        
+        Args:
+            filepath: Path to the new file
+        """
+        try:
+            # Check if we've already processed this file recently
+            if filepath in self.recently_processed_files:
+                return
+                
+            # Add to recently processed files
+            self.recently_processed_files.add(filepath)
+            
+            # Clean up the recently processed files list if it gets too large
+            if len(self.recently_processed_files) > 100:
+                self.recently_processed_files = set(list(self.recently_processed_files)[-50:])
+                
+            # Read the file content
+            content = self.fs.read_file(filepath)
+            if not content:
+                return
+                
+            # Extract the filename without extension
+            filename = os.path.basename(filepath)
+            name, _ = os.path.splitext(filename)
+            
+            # Add to concept cache for auto-linking
+            self.concept_cache.add(name)
+            
+            logger.info(f"Added new file to concept cache: {name}")
+        except Exception as e:
+            logger.error(f"Error processing new file: {e}")
+            logger.debug(traceback.format_exc())
+            
+    def process_modified_file(self, filepath):
+        """
+        Process a modified file in the Obsidian vault.
+        
+        Args:
+            filepath: Path to the modified file
+        """
+        try:
+            # Check if we've already processed this file recently
+            if filepath in self.recently_processed_files:
+                return
+                
+            # Add to recently processed files
+            self.recently_processed_files.add(filepath)
+            
+            # Clean up the recently processed files list if it gets too large
+            if len(self.recently_processed_files) > 100:
+                self.recently_processed_files = set(list(self.recently_processed_files)[-50:])
+                
+            # For now, just log the modification
+            logger.info(f"File modified: {filepath}")
+        except Exception as e:
+            logger.error(f"Error processing modified file: {e}")
+            logger.debug(traceback.format_exc())
         
     def _load_concept_cache(self) -> None:
         """Load existing note titles for auto-linking."""

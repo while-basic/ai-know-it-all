@@ -21,6 +21,7 @@ import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 import traceback
+import re
 
 from .obsidian import ObsidianMemory
 
@@ -33,6 +34,40 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Keywords that indicate important memories
+IMPORTANT_KEYWORDS = [
+    "remember", "don't forget", "important", "critical", "essential",
+    "favorite", "love", "hate", "dislike", "preference", "prefer",
+    "allergy", "allergic", "birthday", "anniversary", "name is", "call me",
+    "address", "phone", "email", "contact", "emergency", "family", "child",
+    "children", "spouse", "wife", "husband", "partner", "goal", "project",
+    "deadline", "meeting", "appointment", "schedule", "reminder",
+    "work", "job", "career", "school", "college", "university", "degree", "major",
+    "minor", "certificate", "license", "skill", "expertise", "hobby", "interest",
+    "activity", "sport", "game", "movie", "tv", "music", "book", "article",
+    "website", "blog", "podcast", "youtube", "instagram", "facebook", "twitter",
+    "linkedin", "github", "gitlab", "bitbucket", "docker", "kubernetes", "aws",
+    "azure", "google", "apple", "microsoft", "amazon", "facebook", "twitter",
+    "obsidian", "vault", "note", "document", "file", "folder", "directory", "path",
+    "project", "task", "todo", "list", "item", "note", "document", "file", "folder",
+    "directory", "path", "project", "task", "todo", "list", "item", "note", "document",
+    "file", "folder", "directory", "path", "project", "task", "todo", "list", "item",
+    "note", "document", "file", "folder", "directory", "path", "project", "task", "todo",
+    "list", "item", "note", "document", "file", "folder", "directory", "path", "project",
+    "financial", "money", "bank", "account", "credit", "debit", "card", "payment", "invoice", "expenses", "income", "budget", "investment", "stock", "due date"
+]
+
+# Regular expressions for detecting personal information
+PERSONAL_INFO_PATTERNS = {
+    "name": [r"(?:my name is|call me|i am) ([A-Z][a-z]+(?: [A-Z][a-z]+)*)", r"([A-Z][a-z]+(?: [A-Z][a-z]+)*) is my name"],
+    "birthday": [r"my birthday is (\w+ \d{1,2}(?:st|nd|rd|th)?(?:,? \d{4})?)", r"born on (\w+ \d{1,2}(?:st|nd|rd|th)?(?:,? \d{4})?)"],
+    "email": [r"my email is ([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)"],
+    "phone": [r"my (?:phone|number) is ((?:\+\d{1,2}\s)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4})"],
+    "location": [r"(?:i live in|i'm from|i am from) ([A-Z][a-z]+(?: [A-Z][a-z]+)*)"],
+    "job": [r"(?:i work as|i am a|i'm a) ([a-z]+(?: [a-z]+)*)"],
+    "preference": [r"i (?:like|love|enjoy|prefer) ([a-z]+(?: [a-z]+)*)", r"i (?:dislike|hate|don't like) ([a-z]+(?: [a-z]+)*)"],
+}
 
 class EnhancedVectorMemory:
     """
@@ -49,6 +84,7 @@ class EnhancedVectorMemory:
         self.memory_path = memory_path
         self.index_path = os.path.join(memory_path, "faiss_index.bin")
         self.metadata_path = os.path.join(memory_path, "metadata.json")
+        self.important_memories_path = os.path.join(memory_path, "important_memories.json")
         self.use_obsidian = use_obsidian
         
         # Create model for embeddings
@@ -60,6 +96,9 @@ class EnhancedVectorMemory:
         
         # Load or create index and metadata
         self.index, self.metadata = self._load_or_create_resources()
+        
+        # Load or create important memories
+        self.important_memories = self._load_or_create_important_memories()
         
         # Initialize conversation tracking (regardless of Obsidian usage)
         self.active_conversation = []
@@ -105,6 +144,149 @@ class EnhancedVectorMemory:
             metadata = []
             
         return index, metadata
+        
+    def _load_or_create_important_memories(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Load existing important memories or create new ones.
+        
+        Returns:
+            Dictionary of important memories by category
+        """
+        if os.path.exists(self.important_memories_path):
+            logger.info(f"Loading existing important memories from {self.important_memories_path}")
+            try:
+                with open(self.important_memories_path, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading important memories: {e}")
+                return {"personal": [], "preferences": [], "events": [], "other": []}
+        else:
+            logger.info("Creating new important memories file")
+            important_memories = {"personal": [], "preferences": [], "events": [], "other": []}
+            self._save_important_memories(important_memories)
+            return important_memories
+            
+    def _save_important_memories(self, important_memories: Dict[str, List[Dict[str, Any]]]) -> None:
+        """
+        Save important memories to disk.
+        
+        Args:
+            important_memories: Dictionary of important memories by category
+        """
+        try:
+            with open(self.important_memories_path, 'w') as f:
+                json.dump(important_memories, f, indent=2)
+            logger.info(f"Saved important memories to {self.important_memories_path}")
+        except Exception as e:
+            logger.error(f"Error saving important memories: {e}")
+            
+    def identify_important_memory(self, text: str, role: str = "user") -> Optional[Dict[str, Any]]:
+        """
+        Identify if a memory is important based on content analysis.
+        
+        Args:
+            text: The memory text
+            role: The role (user or assistant)
+            
+        Returns:
+            Dictionary with importance info or None if not important
+        """
+        # Only process user messages for importance
+        if role != "user":
+            return None
+            
+        # Check for important keywords
+        has_important_keyword = any(keyword in text.lower() for keyword in IMPORTANT_KEYWORDS)
+        
+        # Check for personal information patterns
+        personal_info = {}
+        for info_type, patterns in PERSONAL_INFO_PATTERNS.items():
+            for pattern in patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                if matches:
+                    personal_info[info_type] = matches[0]
+                    break
+                    
+        # Determine the category
+        category = "other"
+        if personal_info:
+            category = "personal"
+        elif any(pref in text.lower() for pref in ["like", "love", "enjoy", "prefer", "dislike", "hate", "financial", "money", "bank", "account", "credit", "debit", "card", "payment", "invoice", "expenses", "income", "budget", "investment", "stock", "due date"]):
+            category = "preferences"
+        elif any(event in text.lower() for event in ["meeting", "appointment", "schedule", "event", "birthday", "anniversary", "due date", "bill due", "expense", "payday", "overtime", "schedule", "time off"]):
+            category = "events"
+            
+        # If we found something important, return the info
+        if has_important_keyword or personal_info:
+            importance_info = {
+                "text": text,
+                "timestamp": time.time(),
+                "category": category,
+                "personal_info": personal_info,
+                "has_important_keyword": has_important_keyword
+            }
+            
+            # Add to important memories
+            if category in self.important_memories:
+                self.important_memories[category].append(importance_info)
+            else:
+                self.important_memories["other"].append(importance_info)
+                
+            # Save important memories
+            self._save_important_memories(self.important_memories)
+            
+            return importance_info
+            
+        return None
+        
+    def get_relevant_important_memories(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """
+        Get important memories relevant to the current query.
+        
+        Args:
+            query: The user's query
+            limit: Maximum number of memories to return
+            
+        Returns:
+            List of relevant important memories
+        """
+        # Flatten all important memories into a single list
+        all_memories = []
+        for category, memories in self.important_memories.items():
+            for memory in memories:
+                all_memories.append(memory)
+                
+        if not all_memories:
+            return []
+            
+        # Get embeddings for the query and all important memories
+        memory_texts = [memory["text"] for memory in all_memories]
+        
+        try:
+            # Get embeddings
+            query_embedding = self.model.encode([query])[0]
+            memory_embeddings = self.model.encode(memory_texts)
+            
+            # Calculate similarities
+            similarities = []
+            for i, memory_embedding in enumerate(memory_embeddings):
+                similarity = np.dot(query_embedding, memory_embedding) / (np.linalg.norm(query_embedding) * np.linalg.norm(memory_embedding))
+                similarities.append((similarity, i))
+                
+            # Sort by similarity (highest first)
+            similarities.sort(reverse=True)
+            
+            # Return the top memories
+            result = []
+            for similarity, idx in similarities[:limit]:
+                memory = all_memories[idx].copy()
+                memory["similarity"] = float(similarity)
+                result.append(memory)
+                
+            return result
+        except Exception as e:
+            logger.error(f"Error getting relevant important memories: {e}")
+            return []
         
     def _sync_metadata_to_obsidian(self) -> None:
         """
@@ -231,6 +413,15 @@ class EnhancedVectorMemory:
         try:
             # Create a memory entry
             entry = self._create_memory_entry(text, role, session_id)
+            
+            # Check if this is an important memory
+            importance_info = self.identify_important_memory(text, role)
+            if importance_info:
+                entry["important"] = True
+                entry["importance_info"] = importance_info
+                logger.info(f"Identified important memory: {importance_info['category']}")
+            else:
+                entry["important"] = False
             
             # Generate embedding
             embedding = self.model.encode([text])[0]
@@ -459,11 +650,83 @@ class EnhancedVectorMemory:
             return []
             
         try:
+            results = []
+            
             if query:
-                # Search for specific memories
+                # First, try direct search with the full query
                 results = self.obsidian.search_notes(query)
                 logger.info(f"Found {len(results)} Obsidian notes matching query: {query}")
-                return results[:limit]
+                
+                # If we got too few results, try additional search strategies
+                if len(results) < 3:
+                    # Try searching for each significant word separately and combine results
+                    significant_words = [word for word in query.split() if len(word) > 3]
+                    
+                    for word in significant_words[:3]:  # Limit to first 3 significant words to avoid too many searches
+                        word_results = self.obsidian.search_notes(word)
+                        
+                        # Add new results that aren't already in our list
+                        for result in word_results:
+                            if result not in results:
+                                results.append(result)
+                                
+                                # Stop if we have enough results
+                                if len(results) >= limit * 2:  # Get more than we need, we'll filter later
+                                    break
+                                    
+                    logger.info(f"After word-by-word search, found {len(results)} total Obsidian notes")
+                
+                # If we still have few results, try a broader approach - get recent notes
+                if len(results) < 3:
+                    recent_notes = self.obsidian.get_recent_conversations(limit * 2)
+                    
+                    # Add new results that aren't already in our list
+                    for note in recent_notes:
+                        if note not in results:
+                            results.append(note)
+                            
+                    logger.info(f"After adding recent notes, found {len(results)} total Obsidian notes")
+                    
+                # For each result, try to get the full content and score it for relevance
+                scored_results = []
+                query_terms = set(word.lower() for word in query.split() if len(word) > 3)
+                
+                for result in results:
+                    # Get the content if not already present
+                    if not result.get('content') and result.get('path'):
+                        result['content'] = self.obsidian.get_note_content(result['path'])
+                        
+                    # Score the result based on content relevance to query
+                    score = 0
+                    content = result.get('content', '').lower()
+                    
+                    # Score based on query term matches
+                    for term in query_terms:
+                        if term in content:
+                            score += content.count(term)
+                            
+                    # Bonus points for title matches
+                    title = result.get('name', '').lower()
+                    for term in query_terms:
+                        if term in title:
+                            score += 5  # Title matches are more important
+                            
+                    # Recency bonus (if we have modified time)
+                    if result.get('modified'):
+                        # Add a small bonus for recent notes (up to 2 points)
+                        time_diff = time.time() - result.get('modified', 0)
+                        if time_diff < 86400:  # Less than a day old
+                            score += 2
+                        elif time_diff < 604800:  # Less than a week old
+                            score += 1
+                            
+                    scored_results.append((result, score))
+                
+                # Sort by relevance score (highest first)
+                scored_results.sort(key=lambda x: x[1], reverse=True)
+                
+                # Return the top results
+                return [result for result, _ in scored_results[:limit]]
             else:
                 # Get recent conversations
                 results = self.obsidian.get_recent_conversations(limit)

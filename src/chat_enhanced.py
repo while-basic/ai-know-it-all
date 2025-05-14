@@ -124,6 +124,40 @@ class EnhancedChatInterface:
             
         return "\n".join(context_parts)
         
+    def _verify_obsidian_content(self, content: str) -> bool:
+        """
+        Verify that Obsidian content is legitimate and not simulation or test data.
+        
+        Args:
+            content: The content to verify
+            
+        Returns:
+            True if content is legitimate, False otherwise
+        """
+        # Patterns that indicate simulation or test content
+        simulation_patterns = [
+            "tick:", "type: simulation", "zombie_mode:", 
+            "simulation_log", "test_data", "test file", 
+            "example data", "sample data", "mock data"
+        ]
+        
+        # Check for simulation patterns
+        if any(pattern in content.lower() for pattern in simulation_patterns):
+            logger.warning("Detected simulation/test content in Obsidian data")
+            return False
+            
+        # Check for metadata block patterns that might indicate test data
+        metadata_block_pattern = "---\n" in content and "\n---\n" in content
+        if metadata_block_pattern:
+            metadata_section = content.split("---\n")[1] if "---\n" in content else ""
+            suspicious_metadata = any(key in metadata_section.lower() for key in 
+                                     ["tick:", "type:", "zombie_mode:", "simulation", "test"])
+            if suspicious_metadata:
+                logger.warning("Detected suspicious metadata block in Obsidian content")
+                return False
+        
+        return True
+        
     def _get_context_from_obsidian(self, query: str) -> str:
         """
         Get relevant context from Obsidian notes.
@@ -138,7 +172,40 @@ class EnhancedChatInterface:
             return ""
             
         # Search Obsidian for relevant notes
-        relevant_notes = self.memory.get_obsidian_memories(query, limit=3)
+        relevant_notes = self.memory.get_obsidian_memories(query, limit=15)
+        
+        # If no results, try different search strategies
+        if not relevant_notes:
+            logger.info("No relevant notes found in Obsidian with direct query")
+            
+            # Strategy 1: Try a broader search with more general terms
+            simplified_query = ' '.join([word for word in query.split() if len(word) > 3])
+            if simplified_query and simplified_query != query:
+                logger.info(f"Trying broader search with: {simplified_query}")
+                relevant_notes = self.memory.get_obsidian_memories(simplified_query, limit=10)
+            
+            # Strategy 2: Extract key nouns and search for those
+            if not relevant_notes:
+                # Simple extraction of potential nouns (words starting with capital letters)
+                potential_nouns = [word for word in query.split() if word and word[0].isupper()]
+                if potential_nouns:
+                    noun_query = ' '.join(potential_nouns)
+                    logger.info(f"Trying noun search with: {noun_query}")
+                    relevant_notes = self.memory.get_obsidian_memories(noun_query, limit=10)
+            
+            # Strategy 3: Try with just the longest words (likely more meaningful)
+            if not relevant_notes:
+                words = query.split()
+                words.sort(key=len, reverse=True)
+                if len(words) > 2:
+                    longest_words = ' '.join(words[:3])  # Use the 3 longest words
+                    logger.info(f"Trying search with longest words: {longest_words}")
+                    relevant_notes = self.memory.get_obsidian_memories(longest_words, limit=10)
+            
+            # Strategy 4: Fall back to getting recent notes if all searches fail
+            if not relevant_notes:
+                logger.info("Falling back to recent notes")
+                relevant_notes = self.memory.get_obsidian_memories(limit=5)  # Get recent notes without a query
         
         if not relevant_notes:
             return ""
@@ -146,13 +213,59 @@ class EnhancedChatInterface:
         context_parts = ["Here are some relevant memories from Obsidian:"]
         
         for note in relevant_notes:
-            # Extract a snippet from the note content
-            content = note.get('content', '')
-            if len(content) > 500:
-                content = content[:500] + "..."
+            # Get the full content of the note
+            note_path = note.get('path', '')
+            if note_path:
+                content = self.memory.obsidian.get_note_content(note_path)
+            else:
+                content = note.get('content', '')
                 
-            context_parts.append(f"Note: {os.path.basename(note.get('path', 'Unknown'))}")
-            context_parts.append(content)
+            # Skip if content is empty or appears to be simulation/test data
+            if not content or not self._verify_obsidian_content(content):
+                continue
+                
+            # If content is too long, extract the most relevant parts
+            if content and len(content) > 1000:
+                # First, look for sections that might match the query
+                query_terms = set(word.lower() for word in query.split() if len(word) > 3)
+                
+                # Split content into paragraphs
+                paragraphs = content.split('\n\n')
+                
+                # Score paragraphs by relevance to query
+                scored_paragraphs = []
+                for para in paragraphs:
+                    if len(para.strip()) < 10:  # Skip very short paragraphs
+                        continue
+                        
+                    # Check if paragraph is simulation/test data
+                    if not self._verify_obsidian_content(para):
+                        continue
+                        
+                    # Count matching terms
+                    para_lower = para.lower()
+                    matches = sum(1 for term in query_terms if term in para_lower)
+                    scored_paragraphs.append((para, matches))
+                
+                # Sort by relevance score (highest first)
+                scored_paragraphs.sort(key=lambda x: x[1], reverse=True)
+                
+                # Take the top 3 most relevant paragraphs
+                relevant_content = '\n\n'.join(para for para, _ in scored_paragraphs[:3])
+                
+                # If we couldn't find relevant paragraphs, take the beginning and some from the middle
+                if not relevant_content:
+                    relevant_content = paragraphs[0] + '\n\n'  # Always include the first paragraph
+                    if len(paragraphs) > 2:
+                        relevant_content += '...\n\n' + paragraphs[len(paragraphs)//2] + '\n\n'  # Add a middle paragraph
+                    if len(paragraphs) > 5:
+                        relevant_content += '...\n\n' + paragraphs[-2]  # Add a paragraph near the end
+                
+                content = relevant_content
+            
+            # Add note information to context
+            context_parts.append(f"Note: {os.path.basename(note_path) if note_path else 'Untitled'}")
+            context_parts.append(content if content else "No content available")
             context_parts.append("")
             
         return "\n".join(context_parts)
@@ -178,22 +291,61 @@ class EnhancedChatInterface:
                 "content": f"Important user details: {personal_details}"
             })
         
-        # Add relevant context from long-term memory
-        context = self._get_context_from_memory(query)
-        if context:
-            messages.insert(0, {
-                "role": "system",
-                "content": f"Here are some relevant memories that might help with the current query:\n\n{context}"
-            })
-            
-        # Add context from Obsidian if available
+        # Add relevant important memories if available
+        important_memories = self.memory.get_relevant_important_memories(query, limit=3)
+        if important_memories:
+            important_content = "Here are some important memories that are relevant to the current query:\n\n"
+            for i, memory in enumerate(important_memories):
+                category = memory.get("category", "other")
+                similarity = memory.get("similarity", 0.0)
+                text = memory.get("text", "")
+                
+                # Only include memories with reasonable similarity
+                if similarity > 0.3:
+                    important_content += f"{i+1}. [{category.upper()}] {text}\n\n"
+                    
+            if len(important_content) > 50:  # Only add if we have meaningful content
+                messages.insert(0, {
+                    "role": "system",
+                    "content": important_content
+                })
+        
+        # Add context from Obsidian if available - prioritize this over vector memory
+        obsidian_context = ""
         if self.use_obsidian:
             obsidian_context = self._get_context_from_obsidian(query)
             if obsidian_context:
                 messages.insert(0, {
                     "role": "system",
-                    "content": obsidian_context
+                    "content": f"IMPORTANT OBSIDIAN CONTEXT: The following information comes from the user's Obsidian vault and should be prioritized when answering their question:\n\n{obsidian_context}"
                 })
+                
+                # Add a specific instruction to use Obsidian content
+                messages.insert(0, {
+                    "role": "system",
+                    "content": "You MUST use the Obsidian content provided above to answer the user's question. This content is from the user's personal knowledge base and contains the most accurate information for their query. If the answer is in the Obsidian content, use it instead of your general knowledge."
+                })
+        
+        # Add relevant context from long-term memory
+        context = self._get_context_from_memory(query)
+        if context:
+            # If we have Obsidian context, make it clear that vector memory is secondary
+            if obsidian_context:
+                messages.insert(0, {
+                    "role": "system",
+                    "content": f"Additional context from vector memory (use only if Obsidian content doesn't answer the question):\n\n{context}"
+                })
+            else:
+                messages.insert(0, {
+                    "role": "system",
+                    "content": f"Here are some relevant memories that might help with the current query:\n\n{context}"
+                })
+            
+        # Add a reminder to use the context provided
+        messages.insert(0, {
+            "role": "system",
+            "content": "IMPORTANT: When answering the user's question, use the context provided above. If the user asks about information they've shared before, you MUST use the context to answer accurately. Do not say you don't have access to personal information if it's provided in the context."
+        })
                 
         # Add the current query
         messages.append({"role": "user", "content": query})
@@ -286,8 +438,28 @@ class EnhancedChatInterface:
         if query.lower().startswith("!obsidian"):
             return self._handle_obsidian_command(query)
             
+        # Check if this query might be about Obsidian content
+        is_obsidian_related = False
+        if self.use_obsidian:
+            # Simple heuristic to check if the query is likely about personal notes
+            obsidian_indicators = ["notes", "vault", "obsidian", "wrote", "document", "file", 
+                                  "remember", "mentioned", "said", "told", "shared",
+                                  "my", "i", "we", "our", "us"]
+            
+            query_lower = query.lower()
+            if any(indicator in query_lower for indicator in obsidian_indicators):
+                is_obsidian_related = True
+                logger.info(f"Query appears to be Obsidian-related: {query}")
+        
         # Build prompt with memory context
         messages = self._build_prompt_with_memory(query)
+        
+        # For Obsidian-related queries, add an extra reminder
+        if is_obsidian_related:
+            messages.insert(0, {
+                "role": "system",
+                "content": "CRITICAL INSTRUCTION: This query appears to be asking about the user's personal notes or information. You MUST prioritize information from their Obsidian vault over your general knowledge. If relevant information is found in the Obsidian context, use it as your primary source. DO NOT say you don't have access to their notes - use the context provided."
+            })
         
         # Generate response
         try:
@@ -300,7 +472,49 @@ class EnhancedChatInterface:
             if not response or not isinstance(response, str):
                 logger.error(f"Invalid response from LLM: {response}")
                 response = "I'm sorry, I couldn't generate a proper response. Please try again."
+            
+            # Check for potential hallucinations in the response
+            hallucination_indicators = [
+                "Note:", "Tick", "tick:", "date:", "type:", "zombie_mode:",
+                "simulation_log", "agent:", "created:", "---"
+            ]
+            
+            has_hallucination = any(indicator in response for indicator in hallucination_indicators)
+            
+            # For Obsidian-related queries, check if the response acknowledges the content
+            if is_obsidian_related and ("I don't have access" in response or has_hallucination):
+                # Try again with a more forceful instruction
+                messages.insert(0, {
+                    "role": "system",
+                    "content": "CRITICAL ERROR: Your previous response was problematic. Either you incorrectly stated you don't have access to the user's notes, or you included metadata/formatting that doesn't belong in a response. DO NOT include any 'Note:', 'Tick', or metadata blocks in your response. Answer the question using ONLY the relevant information in the context. If you truly don't see relevant information in the context, simply state that you don't have that specific information, but DO NOT say you don't have access to their notes or include any metadata formatting."
+                })
                 
+                # Generate a new response
+                response = self.llm.chat_completion(
+                    messages=messages,
+                    system_prompt=self.system_prompt
+                )
+                
+                # If we still have hallucination indicators, clean the response
+                if any(indicator in response for indicator in hallucination_indicators):
+                    # Remove any metadata blocks
+                    if "---" in response:
+                        parts = response.split("---")
+                        if len(parts) >= 3:
+                            # Remove the metadata block
+                            response = "---".join([parts[0]] + parts[2:])
+                    
+                    # Remove lines with hallucination indicators
+                    cleaned_lines = []
+                    for line in response.split("\n"):
+                        if not any(indicator in line for indicator in hallucination_indicators):
+                            cleaned_lines.append(line)
+                    
+                    response = "\n".join(cleaned_lines)
+                    
+                    # Add a disclaimer
+                    response = "I don't have specific information about that in your notes. " + response
+            
             # Update conversation history
             self.conversation_history.append({"role": "user", "content": query})
             self.conversation_history.append({"role": "assistant", "content": response})

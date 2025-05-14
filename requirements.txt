@@ -11,4 +11,8 @@ transformers==4.30.2
 colorama>=0.4.6
 rich>=13.4.2
 pytest>=7.3.1
-aiohttp>=3.8.4 
+aiohttp>=3.8.4
+watchdog>=3.0.0
+gunicorn>=21.2.0
+gevent>=23.9.1
+psutil>=5.9.5 

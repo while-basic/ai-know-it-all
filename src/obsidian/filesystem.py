@@ -227,7 +227,15 @@ class ObsidianFileSystem:
             List of matching notes
         """
         matching_notes = []
-        query = query.lower()
+        query_lower = query.lower()
+        query_terms = [term.lower() for term in query.split() if len(term) > 2]
+        
+        # Patterns that indicate simulation or test files to filter out
+        simulation_patterns = [
+            "tick:", "type: simulation", "zombie_mode:", 
+            "simulation_log", "test_data", "test file", 
+            "example data", "sample data", "mock data"
+        ]
         
         try:
             # Walk through the entire Obsidian vault
@@ -248,41 +256,115 @@ class ObsidianFileSystem:
                         # Get the relative path
                         rel_path = os.path.relpath(filepath, self.obsidian_path)
                         
-                        # Check if the query is in the note name
-                        if query in file.lower():
-                            # Get the file stats
-                            stats = os.stat(filepath)
+                        # Get the file stats
+                        stats = os.stat(filepath)
+                        
+                        # Check if the filename matches the query
+                        filename = os.path.splitext(file)[0].lower()
+                        filename_match = query_lower in filename
+                        
+                        # Calculate a match score
+                        match_score = 0
+                        
+                        # Filename match is a strong signal
+                        if filename_match:
+                            match_score += 10
                             
-                            # Read the content for the preview
-                            content = self.read_file(filepath)
-                            
-                            # Add the note to the list
+                        # Check for term matches in filename
+                        for term in query_terms:
+                            if term in filename:
+                                match_score += 5
+                                
+                        # If we have a good filename match, check if it's not a simulation file
+                        if match_score >= 10:
+                            # Read the first few lines to check if it's a simulation file
+                            try:
+                                with open(filepath, 'r', encoding='utf-8') as f:
+                                    header = f.read(500)  # Read just the header
+                                    
+                                # Check if this is a simulation or test file
+                                is_simulation = any(pattern in header.lower() for pattern in simulation_patterns)
+                                
+                                if is_simulation:
+                                    logger.info(f"Skipping simulation/test file: {filepath}")
+                                    continue
+                            except Exception:
+                                pass  # If we can't read the file, assume it's not a simulation
+                                
                             matching_notes.append({
                                 "path": rel_path,
                                 "name": os.path.splitext(file)[0],
                                 "size": stats.st_size,
                                 "created": stats.st_ctime,
                                 "modified": stats.st_mtime,
-                                "content": content
+                                "match_score": match_score,
+                                "matched_by": "filename"
                             })
                             continue
                             
-                        # Check if the query is in the note content
-                        content = self.read_file(filepath)
-                        
-                        if content and query in content.lower():
-                            # Get the file stats
-                            stats = os.stat(filepath)
+                        # Read the file content
+                        try:
+                            with open(filepath, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                
+                            # Check if this is a simulation or test file
+                            is_simulation = any(pattern in content.lower() for pattern in simulation_patterns)
                             
-                            # Add the note to the list
-                            matching_notes.append({
-                                "path": rel_path,
-                                "name": os.path.splitext(file)[0],
-                                "size": stats.st_size,
-                                "created": stats.st_ctime,
-                                "modified": stats.st_mtime,
-                                "content": content
-                            })
+                            if is_simulation:
+                                logger.info(f"Skipping simulation/test file: {filepath}")
+                                continue
+                                
+                            # Check for exact query match in content
+                            content_match = query_lower in content.lower()
+                            
+                            # If no direct match, check for term matches
+                            term_matches = 0
+                            if not content_match and query_terms:
+                                content_lower = content.lower()
+                                for term in query_terms:
+                                    if term in content_lower:
+                                        term_matches += content_lower.count(term)
+                                        
+                            # Add match score based on content
+                            if content_match:
+                                match_score += 8
+                            elif term_matches > 0:
+                                # More matches = higher score, but cap at 7
+                                match_score += min(7, term_matches)
+                                
+                            # If we have any kind of match, add the note
+                            if match_score > 0:
+                                matching_notes.append({
+                                    "path": rel_path,
+                                    "name": os.path.splitext(file)[0],
+                                    "size": stats.st_size,
+                                    "created": stats.st_ctime,
+                                    "modified": stats.st_mtime,
+                                    "content": content,
+                                    "match_score": match_score,
+                                    "matched_by": "content" if not filename_match else "filename+content"
+                                })
+                        except Exception as e:
+                            logger.error(f"Error reading file content: {filepath}, {e}")
+                            # Still add the note without content
+                            if match_score > 0:
+                                matching_notes.append({
+                                    "path": rel_path,
+                                    "name": os.path.splitext(file)[0],
+                                    "size": stats.st_size,
+                                    "created": stats.st_ctime,
+                                    "modified": stats.st_mtime,
+                                    "match_score": match_score,
+                                    "matched_by": "filename",
+                                    "error": str(e)
+                                })
+            
+            # Sort by match score (highest first)
+            matching_notes.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+            
+            # Log search results
+            logger.info(f"Found {len(matching_notes)} notes matching query: {query}")
+            
         except Exception as e:
             logger.error(f"Error searching notes: {e}")
             logger.debug(traceback.format_exc())
