@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #status {
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1>API Debug</h1>
+    
+    <div>
+        <button id="testModels">Test Models API</button>
+        <button id="testChangeModel">Test Change Model</button>
+    </div>
+    
+    <div id="status">Ready</div>
+    
+    <h2>Response:</h2>
+    <pre id="response">No data yet</pre>
+    
+    <script>
+        document.getElementById('testModels').addEventListener('click', function() {
+            document.getElementById('status').textContent = 'Testing /api/models...';
+            
+            fetch('/api/models')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+                    document.getElementById('status').textContent = 'Success!';
+                })
+                .catch(error => {
+                    document.getElementById('response').textContent = `Error: ${error.message}`;
+                    document.getElementById('status').textContent = 'Failed!';
+                    console.error('Error:', error);
+                });
+        });
+        
+        document.getElementById('testChangeModel').addEventListener('click', function() {
+            // Get the current model from the previous response
+            const responseText = document.getElementById('response').textContent;
+            let currentModel = '';
+            let alternativeModel = '';
+            
+            try {
+                const data = JSON.parse(responseText);
+                currentModel = data.current_model;
+                
+                // Find an alternative model to switch to
+                if (data.models && data.models.length > 0) {
+                    for (const model of data.models) {
+                        if (model.name !== currentModel) {
+                            alternativeModel = model.name;
+                            break;
+                        }
+                    }
+                }
+            } catch (e) {
+                document.getElementById('status').textContent = 'Please test Models API first';
+                return;
+            }
+            
+            if (!alternativeModel) {
+                document.getElementById('status').textContent = 'No alternative model found';
+                return;
+            }
+            
+            document.getElementById('status').textContent = `Changing model from ${currentModel} to ${alternativeModel}...`;
+            
+            fetch('/api/models/change', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ model: alternativeModel }),
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+                    document.getElementById('status').textContent = 'Model changed successfully!';
+                })
+                .catch(error => {
+                    document.getElementById('response').textContent = `Error: ${error.message}`;
+                    document.getElementById('status').textContent = 'Failed to change model!';
+                    console.error('Error:', error);
+                });
+        });
+    </script>
+</body>
+</html> 

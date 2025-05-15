@@ -1,6 +1,14 @@
 {
   "personal": [],
-  "preferences": [],
+  "preferences": [
+    {
+      "text": "I have a work schedule, m-f from 3:30pm-midnight and saturdays from 8am-4:30pm. I make $16 an hour and have about $500 in monthly expenses. I'm also planning a trip to Dallas and Alaska this year.",
+      "timestamp": 1747254555.391537,
+      "category": "preferences",
+      "personal_info": {},
+      "has_important_keyword": true
+    }
+  ],
   "events": [],
   "other": [
     {
@@ -20,6 +28,20 @@
     {
       "text": "How many siblings do I have, whats my hourly pay rate, and what type of music do I produce?",
       "timestamp": 1747252771.301599,
+      "category": "other",
+      "personal_info": {},
+      "has_important_keyword": true
+    },
+    {
+      "text": "How many siblings do I have, whats my hourly pay rate, and what type of music do I produce?",
+      "timestamp": 1747254332.680248,
+      "category": "other",
+      "personal_info": {},
+      "has_important_keyword": true
+    },
+    {
+      "text": "I have 3 siblings, 2 parents, and produce hip-hop, boom bap, and trap music.",
+      "timestamp": 1747254458.000853,
       "category": "other",
       "personal_info": {},
       "has_important_keyword": true

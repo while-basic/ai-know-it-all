@@ -18,12 +18,14 @@ from dotenv import load_dotenv
 from werkzeug.middleware.proxy_fix import ProxyFix
 import threading
 import time
+import requests
 
 # Add the current directory to the path so we can import the modules
 import sys
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.chat_enhanced import EnhancedChatInterface
+from src.llm import LLMClient
 
 # Load environment variables
 load_dotenv()
@@ -50,6 +52,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 memory_path = os.getenv("MEMORY_PATH", "./data/memory")
 model = os.getenv("MODEL_NAME", "sushruth/solar-uncensored:latest")
 use_obsidian = os.getenv("USE_OBSIDIAN", "true").lower() == "true"
+ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 # Initialize chat interface with a timeout to prevent blocking startup
 chat_interface = None
@@ -87,6 +90,26 @@ def shutdown():
 def index():
     """Render the chat interface."""
     return render_template('index.html')
+
+@app.route('/debug')
+def debug():
+    """Render the debug page."""
+    return render_template('debug.html')
+
+@app.route('/test')
+def test():
+    """Render the test page."""
+    return render_template('test.html')
+
+@app.route('/api-test')
+def api_test():
+    """Render the API test page."""
+    return render_template('api_test.html')
+
+@app.route('/model-test')
+def model_test():
+    """Render the model test page."""
+    return render_template('model_test.html')
 
 @app.route('/health')
 def health():
@@ -161,6 +184,91 @@ def history():
     except Exception as e:
         logger.error(f"Error retrieving chat history: {e}", exc_info=True)
         return jsonify({'error': 'An error occurred retrieving chat history'}), 500
+
+@app.route('/api/models', methods=['GET'])
+def list_models():
+    """List available Ollama models."""
+    try:
+        # Create a temporary LLM client to get models
+        llm_client = LLMClient(base_url=ollama_base_url)
+        
+        # Get available models from Ollama API
+        api_url = f"{ollama_base_url}/api/tags"
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
+        
+        result = response.json()
+        models = result.get("models", [])
+        
+        # Format model information
+        formatted_models = []
+        for model_info in models:
+            formatted_models.append({
+                'name': model_info.get('name'),
+                'size': model_info.get('size'),
+                'modified_at': model_info.get('modified_at'),
+                'details': model_info.get('details', {}),
+                'is_current': model_info.get('name') == chat_interface.llm.model if chat_interface else False
+            })
+            
+        # Sort models by name
+        formatted_models.sort(key=lambda x: x.get('name', ''))
+        
+        return jsonify({
+            'models': formatted_models,
+            'current_model': chat_interface.llm.model if chat_interface else model
+        })
+    except Exception as e:
+        logger.error(f"Error listing models: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred retrieving models'}), 500
+
+@app.route('/api/models/change', methods=['POST'])
+def change_model():
+    """Change the current Ollama model."""
+    try:
+        # Check if chat interface is ready
+        if not chat_interface_ready:
+            return jsonify({
+                'error': 'Chat interface is still initializing. Please try again in a moment.'
+            }), 503
+            
+        data = request.json
+        new_model = data.get('model')
+        
+        if not new_model:
+            return jsonify({'error': 'No model specified'}), 400
+            
+        # Validate that the model exists
+        api_url = f"{ollama_base_url}/api/tags"
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
+        
+        result = response.json()
+        available_models = [model.get('name') for model in result.get('models', [])]
+        
+        if new_model not in available_models:
+            return jsonify({'error': f'Model {new_model} not found'}), 404
+            
+        # Update the model in the chat interface
+        old_model = chat_interface.llm.model
+        chat_interface.llm.model = new_model
+        
+        logger.info(f"Changed model from {old_model} to {new_model}")
+        
+        # Add a system message to the chat
+        chat_interface.memory.add_memory(
+            f"Model changed from {old_model} to {new_model}",
+            role="system"
+        )
+        
+        return jsonify({
+            'success': True,
+            'old_model': old_model,
+            'new_model': new_model
+        })
+    except Exception as e:
+        logger.error(f"Error changing model: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred changing the model'}), 500
 
 # Add cache control headers to static files
 @app.after_request

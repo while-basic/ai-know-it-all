@@ -147,6 +147,26 @@
             text-align: right;
             margin-top: 5px;
         }
+        /* Model selector styles */
+        .model-selector {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .model-selector select {
+            padding: 5px 10px;
+            border-radius: 5px;
+            border: 1px solid #ced4da;
+            background-color: white;
+            font-size: 0.9rem;
+        }
+        .model-info {
+            font-size: 0.8rem;
+            color: #6c757d;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -154,6 +174,18 @@
         <div class="chat-header">
             <h2 class="text-center">AI Know It All</h2>
             <p class="text-center text-muted small mb-0">Your personal AI assistant with long-term memory</p>
+            
+            <!-- Model selector -->
+            <div class="model-selector">
+                <label for="modelSelect">Model:</label>
+                <select id="modelSelect" class="form-select form-select-sm" aria-label="Select model">
+                    <option value="" disabled selected>Loading models...</option>
+                </select>
+                <button id="refreshModels" class="btn btn-sm btn-outline-secondary" title="Refresh models list">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <p id="modelInfo" class="model-info mt-1">Loading model information...</p>
         </div>
         
         <div class="chat-messages" id="chatMessages">
@@ -180,5 +212,50 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/model-selector.js') }}"></script>
+    <script>
+        // Add debugging code
+        console.log('Debug: Page loaded');
+        
+        // Check if model selector exists
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Debug: DOM loaded');
+            const modelSelect = document.getElementById('modelSelect');
+            const modelInfo = document.getElementById('modelInfo');
+            const refreshModels = document.getElementById('refreshModels');
+            
+            if (modelSelect) {
+                console.log('Debug: Model select found', modelSelect);
+            } else {
+                console.error('Debug: Model select not found');
+            }
+            
+            if (modelInfo) {
+                console.log('Debug: Model info found', modelInfo);
+            } else {
+                console.error('Debug: Model info not found');
+            }
+            
+            if (refreshModels) {
+                console.log('Debug: Refresh models button found', refreshModels);
+            } else {
+                console.error('Debug: Refresh models button not found');
+            }
+            
+            // Test API directly
+            console.log('Debug: Testing API directly');
+            fetch('/api/models')
+                .then(response => {
+                    console.log('Debug: API response', response);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Debug: API data', data);
+                })
+                .catch(error => {
+                    console.error('Debug: API error', error);
+                });
+        });
+    </script>
 </body>
 </html> 

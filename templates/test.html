@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Selector Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .model-selector {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Model Selector Test</h1>
+    
+    <div class="model-selector">
+        <div class="mb-3 row">
+            <label for="modelSelect" class="col-sm-2 col-form-label">Model:</label>
+            <div class="col-sm-8">
+                <select id="modelSelect" class="form-select" aria-label="Select model">
+                    <option value="" disabled selected>Loading models...</option>
+                </select>
+            </div>
+            <div class="col-sm-2">
+                <button id="refreshModels" class="btn btn-outline-secondary">
+                    Refresh
+                </button>
+            </div>
+        </div>
+        <p id="modelInfo" class="text-muted">Loading model information...</p>
+    </div>
+    
+    <div class="mt-4">
+        <h3>Debug Information</h3>
+        <div class="mb-3">
+            <button id="testApi" class="btn btn-primary">Test API</button>
+        </div>
+        <pre id="apiResult">No API results yet</pre>
+    </div>
+    
+    <script>
+        // Elements
+        const modelSelect = document.getElementById('modelSelect');
+        const modelInfo = document.getElementById('modelInfo');
+        const refreshModels = document.getElementById('refreshModels');
+        const testApi = document.getElementById('testApi');
+        const apiResult = document.getElementById('apiResult');
+        
+        // Current model
+        let currentModel = '';
+        
+        // Load models on page load
+        document.addEventListener('DOMContentLoaded', loadModels);
+        
+        // Event listeners
+        refreshModels.addEventListener('click', loadModels);
+        testApi.addEventListener('click', testModelsApi);
+        modelSelect.addEventListener('change', handleModelChange);
+        
+        function loadModels() {
+            // Show loading state
+            modelSelect.disabled = true;
+            refreshModels.disabled = true;
+            modelInfo.textContent = 'Loading models...';
+            
+            console.log('Fetching models from API...');
+            
+            // Fetch available models from server
+            fetch('/api/models')
+                .then(response => {
+                    console.log('API response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Models data received:', data);
+                    apiResult.textContent = 'API Response: ' + JSON.stringify(data, null, 2);
+                    
+                    // Clear existing options
+                    modelSelect.innerHTML = '';
+                    
+                    if (data.error) {
+                        console.error('API returned error:', data.error);
+                        modelInfo.textContent = `Error: ${data.error}`;
+                        modelSelect.innerHTML = '<option value="" disabled selected>Error loading models</option>';
+                        return;
+                    }
+                    
+                    // Save current model
+                    currentModel = data.current_model;
+                    console.log('Current model set to:', currentModel);
+                    
+                    // Add options for each model
+                    if (data.models && data.models.length > 0) {
+                        console.log(`Adding ${data.models.length} models to selector`);
+                        data.models.forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model.name;
+                            option.textContent = model.name;
+                            
+                            // Get parameter size if available
+                            const paramSize = model.details?.parameter_size || '';
+                            if (paramSize) {
+                                option.textContent += ` (${paramSize})`;
+                            }
+                            
+                            // Mark current model as selected
+                            if (model.name === currentModel) {
+                                option.selected = true;
+                            }
+                            
+                            modelSelect.appendChild(option);
+                        });
+                        
+                        // Update model info
+                        updateModelInfo(currentModel, data.models);
+                    } else {
+                        console.warn('No models found in API response');
+                        modelSelect.innerHTML = '<option value="" disabled selected>No models available</option>';
+                        modelInfo.textContent = 'No models available';
+                    }
+                    
+                    // Enable controls
+                    modelSelect.disabled = false;
+                    refreshModels.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error fetching models:', error);
+                    apiResult.textContent = 'Error: ' + error.message;
+                    modelInfo.textContent = `Error: ${error.message}`;
+                    modelSelect.innerHTML = '<option value="" disabled selected>Error loading models</option>';
+                    modelSelect.disabled = false;
+                    refreshModels.disabled = false;
+                });
+        }
+        
+        function handleModelChange() {
+            const selectedModel = modelSelect.value;
+            if (selectedModel && selectedModel !== currentModel) {
+                changeModel(selectedModel);
+            }
+        }
+        
+        function changeModel(newModel) {
+            // Show loading state
+            modelSelect.disabled = true;
+            refreshModels.disabled = true;
+            modelInfo.textContent = `Changing to ${newModel}...`;
+            
+            // Send request to change model
+            fetch('/api/models/change', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ model: newModel }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                apiResult.textContent = 'Change Model Response: ' + JSON.stringify(data, null, 2);
+                
+                if (data.error) {
+                    modelInfo.textContent = `Error: ${data.error}`;
+                    // Reset select to current model
+                    Array.from(modelSelect.options).forEach(option => {
+                        option.selected = option.value === currentModel;
+                    });
+                } else {
+                    // Update current model
+                    currentModel = data.new_model;
+                    modelInfo.textContent = `Model changed from ${data.old_model} to ${data.new_model}`;
+                    
+                    // Update model info by fetching models again
+                    fetch('/api/models')
+                        .then(response => response.json())
+                        .then(modelData => {
+                            updateModelInfo(currentModel, modelData.models);
+                        });
+                }
+                
+                // Enable controls
+                modelSelect.disabled = false;
+                refreshModels.disabled = false;
+            })
+            .catch(error => {
+                console.error('Error changing model:', error);
+                apiResult.textContent = 'Error: ' + error.message;
+                modelInfo.textContent = `Error: ${error.message}`;
+                
+                // Reset select to current model
+                Array.from(modelSelect.options).forEach(option => {
+                    option.selected = option.value === currentModel;
+                });
+                
+                // Enable controls
+                modelSelect.disabled = false;
+                refreshModels.disabled = false;
+            });
+        }
+        
+        function updateModelInfo(modelName, models) {
+            // Find the selected model in the models array
+            const model = models.find(m => m.name === modelName);
+            
+            if (model) {
+                // Format size in MB or GB
+                let sizeText = '';
+                if (model.size) {
+                    const sizeInMB = model.size / (1024 * 1024);
+                    if (sizeInMB > 1000) {
+                        sizeText = `${(sizeInMB / 1024).toFixed(2)} GB`;
+                    } else {
+                        sizeText = `${sizeInMB.toFixed(2)} MB`;
+                    }
+                }
+                
+                // Get quantization level if available
+                const quantLevel = model.details?.quantization_level || '';
+                
+                // Format info text
+                let infoText = `Using ${modelName}`;
+                if (model.details?.parameter_size) {
+                    infoText += ` (${model.details.parameter_size})`;
+                }
+                if (sizeText) {
+                    infoText += ` | Size: ${sizeText}`;
+                }
+                if (quantLevel) {
+                    infoText += ` | Quantization: ${quantLevel}`;
+                }
+                
+                modelInfo.textContent = infoText;
+            } else {
+                modelInfo.textContent = `Using ${modelName}`;
+            }
+        }
+        
+        function testModelsApi() {
+            apiResult.textContent = 'Testing API...';
+            
+            fetch('/api/models')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    apiResult.textContent = JSON.stringify(data, null, 2);
+                })
+                .catch(error => {
+                    apiResult.textContent = `Error: ${error.message}`;
+                    console.error('Error testing API:', error);
+                });
+        }
+    </script>
+</body>
+</html> 

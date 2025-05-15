@@ -1,6 +1,8 @@
 # TODO
 
 ## Incompleted Tasks
+
+- Add a feature to the flask interface to allow the user to change Ollama models.
 - Combine all README.md files into a single README.md in the root directory.
 - Make chat interface background to all black.
 

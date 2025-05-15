@@ -1,0 +1,264 @@
+# ----------------------------------------------------------------------------
+#  File:        api_test.html
+#  Project:     Celaya Solutions AI Know It All
+#  Created by:  Celaya Solutions, 2025
+#  Author:      Christopher Celaya <chris@celayasolutions.com>
+#  Description: Simple test page for API endpoints
+#  Version:     1.0.0
+#  License:     MIT (SPDX-Identifier: MIT)
+#  Last Update: (May 2025)
+# ----------------------------------------------------------------------------
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            margin: 10px 0;
+            padding: 8px 16px;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .model-selector {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        select {
+            padding: 5px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>API Test</h1>
+    
+    <button id="testApi">Test Models API</button>
+    <pre id="apiResult">No results yet</pre>
+    
+    <div class="model-selector">
+        <h2>Model Selector</h2>
+        <select id="modelSelect">
+            <option value="" disabled selected>Loading models...</option>
+        </select>
+        <p id="modelInfo">Loading model information...</p>
+        <button id="changeModel">Change Model</button>
+    </div>
+    
+    <script>
+        // Elements
+        const testApiBtn = document.getElementById('testApi');
+        const apiResult = document.getElementById('apiResult');
+        const modelSelect = document.getElementById('modelSelect');
+        const modelInfo = document.getElementById('modelInfo');
+        const changeModelBtn = document.getElementById('changeModel');
+        
+        // Current model
+        let currentModel = '';
+        
+        // Event listeners
+        testApiBtn.addEventListener('click', testApi);
+        changeModelBtn.addEventListener('click', function() {
+            const selectedModel = modelSelect.value;
+            if (selectedModel && selectedModel !== currentModel) {
+                changeModel(selectedModel);
+            } else {
+                apiResult.textContent = 'Please select a different model';
+            }
+        });
+        
+        // Load models on page load
+        document.addEventListener('DOMContentLoaded', loadModels);
+        
+        function testApi() {
+            apiResult.textContent = 'Testing API...';
+            
+            fetch('/api/models')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    apiResult.textContent = JSON.stringify(data, null, 2);
+                    populateModelSelect(data);
+                })
+                .catch(error => {
+                    apiResult.textContent = `Error: ${error.message}`;
+                    console.error('Error:', error);
+                });
+        }
+        
+        function loadModels() {
+            modelSelect.disabled = true;
+            modelInfo.textContent = 'Loading models...';
+            
+            fetch('/api/models')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    populateModelSelect(data);
+                })
+                .catch(error => {
+                    modelInfo.textContent = `Error: ${error.message}`;
+                    modelSelect.innerHTML = '<option value="" disabled selected>Error loading models</option>';
+                    console.error('Error:', error);
+                });
+        }
+        
+        function populateModelSelect(data) {
+            // Clear existing options
+            modelSelect.innerHTML = '';
+            
+            if (data.error) {
+                modelInfo.textContent = `Error: ${data.error}`;
+                modelSelect.innerHTML = '<option value="" disabled selected>Error loading models</option>';
+                return;
+            }
+            
+            // Save current model
+            currentModel = data.current_model;
+            
+            // Add options for each model
+            if (data.models && data.models.length > 0) {
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = model.name;
+                    
+                    // Get parameter size if available
+                    const paramSize = model.details?.parameter_size || '';
+                    if (paramSize) {
+                        option.textContent += ` (${paramSize})`;
+                    }
+                    
+                    // Mark current model as selected
+                    if (model.name === currentModel) {
+                        option.selected = true;
+                    }
+                    
+                    modelSelect.appendChild(option);
+                });
+                
+                // Update model info
+                updateModelInfo(currentModel, data.models);
+            } else {
+                modelSelect.innerHTML = '<option value="" disabled selected>No models available</option>';
+                modelInfo.textContent = 'No models available';
+            }
+            
+            // Enable controls
+            modelSelect.disabled = false;
+        }
+        
+        function updateModelInfo(modelName, models) {
+            // Find the selected model in the models array
+            const model = models.find(m => m.name === modelName);
+            
+            if (model) {
+                // Format size in MB or GB
+                let sizeText = '';
+                if (model.size) {
+                    const sizeInMB = model.size / (1024 * 1024);
+                    if (sizeInMB > 1000) {
+                        sizeText = `${(sizeInMB / 1024).toFixed(2)} GB`;
+                    } else {
+                        sizeText = `${sizeInMB.toFixed(2)} MB`;
+                    }
+                }
+                
+                // Get quantization level if available
+                const quantLevel = model.details?.quantization_level || '';
+                
+                // Format info text
+                let infoText = `Using ${modelName}`;
+                if (model.details?.parameter_size) {
+                    infoText += ` (${model.details.parameter_size})`;
+                }
+                if (sizeText) {
+                    infoText += ` | Size: ${sizeText}`;
+                }
+                if (quantLevel) {
+                    infoText += ` | Quantization: ${quantLevel}`;
+                }
+                
+                modelInfo.textContent = infoText;
+            } else {
+                modelInfo.textContent = `Using ${modelName}`;
+            }
+        }
+        
+        function changeModel(newModel) {
+            modelSelect.disabled = true;
+            modelInfo.textContent = `Changing to ${newModel}...`;
+            
+            fetch('/api/models/change', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ model: newModel }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    modelInfo.textContent = `Error: ${data.error}`;
+                    apiResult.textContent = `Error: ${data.error}`;
+                    
+                    // Reset select to current model
+                    Array.from(modelSelect.options).forEach(option => {
+                        option.selected = option.value === currentModel;
+                    });
+                } else {
+                    // Update current model
+                    currentModel = data.new_model;
+                    apiResult.textContent = `Model changed from ${data.old_model} to ${data.new_model}`;
+                    
+                    // Update model info by fetching models again
+                    fetch('/api/models')
+                        .then(response => response.json())
+                        .then(modelData => {
+                            updateModelInfo(currentModel, modelData.models);
+                        });
+                }
+                
+                // Enable controls
+                modelSelect.disabled = false;
+            })
+            .catch(error => {
+                modelInfo.textContent = `Error: ${error.message}`;
+                apiResult.textContent = `Error: ${error.message}`;
+                
+                // Reset select to current model
+                Array.from(modelSelect.options).forEach(option => {
+                    option.selected = option.value === currentModel;
+                });
+                
+                // Enable controls
+                modelSelect.disabled = false;
+            });
+        }
+    </script>
+</body>
+</html> 
